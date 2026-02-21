@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   # PostgreSQL Database
@@ -22,29 +22,6 @@ services:
       - smart-alert-network
     restart: unless-stopped
 
-  # Ollama (Free AI - Optional)
-  ollama:
-    image: ollama/ollama:latest
-    container_name: smart-alert-ollama
-    volumes:
-      - ollama_data:/root/.ollama
-    ports:
-      - "11434:11434"
-    environment:
-      - OLLAMA_HOST=0.0.0.0
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    networks:
-      - smart-alert-network
-    restart: unless-stopped
-    # Uncomment to pull model on startup
-    # command: >
-    #   sh -c "ollama serve & sleep 5 && ollama pull llama3.2"
-
   # Smart Alert System Application
   app:
     build:
@@ -54,8 +31,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
     environment:
       # Database
       DB_HOST: postgres
@@ -64,22 +39,21 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
       DB_NAME: ${DB_NAME:-smart_alert_db}
       DB_SSLMODE: disable
-      
-      # Waha Server (external - adjust as needed)
-      WAHA_SERVER_URL: ${WAHA_SERVER_URL:-http://host.docker.internal:3000}
-      WAHA_API_KEY: ${WAHA_API_KEY:-}
-      
+
+      # Telegram Bot
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+
       # AI Configuration
-      AI_PROVIDER: ${AI_PROVIDER:-ollama}
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
       AI_API_KEY: ${AI_API_KEY:-}
-      AI_MODEL: ${AI_MODEL:-llama3.2}
-      AI_BASE_URL: http://ollama:11434/v1
-      
+      AI_MODEL: ${AI_MODEL:-seed-2-0-mini-free}
+      AI_BASE_URL: ${AI_BASE_URL:-https://ai.sumopod.com/v1}
+
       # Application
       APP_ENV: ${APP_ENV:-production}
       APP_PORT: 8080
       TIMEZONE: ${TIMEZONE:-Asia/Jakarta}
-      
+
       # Scheduler
       MORNING_ALERT_TIME: ${MORNING_ALERT_TIME:-05:00}
       EVENING_SUMMARY_TIME: ${EVENING_SUMMARY_TIME:-22:00}
@@ -103,10 +77,7 @@ services:
 volumes:
   postgres_data:
     driver: local
-  ollama_data:
-    driver: local
 
 networks:
   smart-alert-network:
     driver: bridge
-

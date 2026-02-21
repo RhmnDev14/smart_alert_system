@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -16,7 +15,7 @@ import (
 	"smart_alert_system/internal/infrastructure/database"
 	infraRepo "smart_alert_system/internal/infrastructure/repository"
 	"smart_alert_system/internal/infrastructure/scheduler"
-	"smart_alert_system/internal/infrastructure/whatsapp"
+	"smart_alert_system/internal/infrastructure/telegram"
 	"smart_alert_system/internal/usecase"
 
 	"github.com/gorilla/mux"
@@ -27,6 +26,11 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	// Validate Telegram Bot Token
+	if cfg.TelegramBotToken == "" {
+		log.Fatalf("❌ TELEGRAM_BOT_TOKEN is not set in .env file. Please add your Telegram Bot Token (get it from @BotFather)")
 	}
 
 	// Connect to database
@@ -45,45 +49,29 @@ func main() {
 	healthRepo := infraRepo.NewHealthRepository(db)
 	categoryRepo := infraRepo.NewCategoryRepository(db)
 
-	// Initialize infrastructure services
-	wahaClient := whatsapp.NewWahaClient(cfg.WahaServerURL, cfg.WahaAPIKey)
+	// Initialize Telegram Bot client
+	telegramClient := telegram.NewTelegramClient(cfg.TelegramBotToken)
+
+	// Verify bot token
+	botInfo, err := telegramClient.GetMe()
+	if err != nil {
+		log.Fatalf("❌ Failed to verify Telegram Bot Token: %v", err)
+	}
+	log.Printf("✓ Telegram Bot verified: @%s", botInfo.Username)
 
 	// Initialize AI Service
 	var aiService ai.AIService
 
-	if cfg.AIProvider == "ollama" || cfg.AIBaseURL != "" {
-		// Using Ollama (free, local)
-		if cfg.AIBaseURL == "" {
-			cfg.AIBaseURL = "http://localhost:11434/v1"
-		}
-		if cfg.AIModel == "" {
-			cfg.AIModel = "llama3.2" // Default Ollama model
-		}
-		log.Printf("✓ AI Service: Ollama (Free)")
-		log.Printf("  Base URL: %s", cfg.AIBaseURL)
-		log.Printf("  Model: %s", cfg.AIModel)
-		aiService = ai.NewOpenAIService("", cfg.AIModel, cfg.AIBaseURL)
-	} else {
-		// Using OpenAI or other provider
-		if cfg.AIApiKey == "" {
-			log.Fatalf("❌ AI_API_KEY is not set in .env file. Please add your OpenAI API key, or use Ollama by setting AI_PROVIDER=ollama")
-		}
-		if cfg.AIModel == "" {
-			log.Printf("⚠️  AI_MODEL not set, using default: gpt-3.5-turbo")
-			cfg.AIModel = "gpt-3.5-turbo"
-		}
-
-		// Normalize model name - ensure it has 'gpt-' prefix if it's a version number
-		normalizedModel := normalizeModelName(cfg.AIModel)
-		if normalizedModel != cfg.AIModel {
-			log.Printf("⚠️  Model name normalized: %s -> %s", cfg.AIModel, normalizedModel)
-			cfg.AIModel = normalizedModel
-		}
-
-		log.Printf("✓ AI Service: OpenAI")
-		log.Printf("  Model: %s", cfg.AIModel)
-		aiService = ai.NewOpenAIService(cfg.AIApiKey, cfg.AIModel, cfg.AIBaseURL)
+	if cfg.AIModel == "" {
+		cfg.AIModel = "gpt-3.5-turbo"
 	}
+
+	log.Printf("✓ AI Service: %s", cfg.AIProvider)
+	log.Printf("  Model: %s", cfg.AIModel)
+	if cfg.AIBaseURL != "" {
+		log.Printf("  Base URL: %s", cfg.AIBaseURL)
+	}
+	aiService = ai.NewOpenAIService(cfg.AIApiKey, cfg.AIModel, cfg.AIBaseURL)
 
 	// Initialize use cases
 	userUseCase := usecase.NewUserUseCase(userRepo)
@@ -94,15 +82,15 @@ func main() {
 		healthRepo,
 		alertRepo,
 		aiService,
-		wahaClient,
+		telegramClient,
 	)
 
-	// Initialize handlers
-	whatsappHandler := handler.NewWhatsAppHandler(
+	// Initialize Telegram handler
+	telegramHandler := handler.NewTelegramHandler(
 		userUseCase,
 		activityUseCase,
 		aiService,
-		wahaClient,
+		telegramClient,
 		messageRepo,
 		alertRepo,
 	)
@@ -119,9 +107,14 @@ func main() {
 	}
 	defer sched.Stop()
 
-	// Setup HTTP router
+	// Start Telegram long-polling in background
+	pollingCtx, pollingCancel := context.WithCancel(context.Background())
+	defer pollingCancel()
+	go telegramHandler.StartLongPolling(pollingCtx)
+
+	// Setup HTTP router (keep webhook endpoint as fallback + health check)
 	router := mux.NewRouter()
-	router.HandleFunc("/webhook", whatsappHandler.HandleWebhook).Methods("POST")
+	router.HandleFunc("/webhook", telegramHandler.HandleWebhook).Methods("POST")
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
@@ -138,7 +131,9 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		log.Printf("Server starting on port %s", cfg.AppPort)
+		log.Printf("🚀 Server starting on port %s", cfg.AppPort)
+		log.Printf("🤖 Telegram Bot is running with long-polling mode")
+		log.Printf("📡 Webhook endpoint available at POST /webhook")
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Server failed to start: %v", err)
 		}
@@ -150,6 +145,7 @@ func main() {
 	<-quit
 
 	log.Println("Shutting down server...")
+	pollingCancel()
 
 	// Graceful shutdown
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -160,22 +156,4 @@ func main() {
 	}
 
 	log.Println("Server exited")
-}
-
-// normalizeModelName ensures the model name has the correct format
-// If user provides "3.5-turbo", it will be normalized to "gpt-3.5-turbo"
-func normalizeModelName(model string) string {
-	if model == "" {
-		return "gpt-3.5-turbo"
-	}
-
-	// If model doesn't start with "gpt-" and looks like a version number, add prefix
-	if !strings.HasPrefix(model, "gpt-") && !strings.HasPrefix(model, "o1-") {
-		// Check if it looks like a model version (e.g., "3.5-turbo", "4", "4-turbo")
-		if strings.HasPrefix(model, "3.5") || strings.HasPrefix(model, "4") {
-			return "gpt-" + model
-		}
-	}
-
-	return model
 }

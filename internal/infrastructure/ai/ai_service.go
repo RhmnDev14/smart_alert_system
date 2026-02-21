@@ -169,7 +169,7 @@ func (s *OpenAIService) ParseIntent(ctx context.Context, message string) (*entit
 	// Use system message for better instruction following
 	systemPrompt := `You are a JSON-only response bot. You MUST respond with ONLY valid JSON, no explanations, no markdown, no code blocks, no text before or after.
 
-Your task: Analyze WhatsApp messages and extract intent and entities. Return ONLY a JSON object.
+Your task: Analyze Telegram messages and extract intent and entities. Return ONLY a JSON object.
 
 Valid intents: "add_activity", "delete_activity", "update_activity", "list_activities", "question", "greeting", "unknown"
 
@@ -198,26 +198,11 @@ Output: {"intent":"list_activities","confidence":0.9,"entities":{}}
 
 REMEMBER: Return ONLY JSON, nothing else. Start with { and end with }.`
 
-	userPrompt := fmt.Sprintf(`Analyze this WhatsApp message and return JSON:
+	userPrompt := fmt.Sprintf(`Analyze this Telegram message and return JSON:
 
 Message: "%s"`, message)
 
-	// Use system message if baseURL suggests Ollama (local)
-	useSystemMessage := strings.Contains(s.baseURL, "localhost") || strings.Contains(s.baseURL, "127.0.0.1")
-
-	var response string
-	var err error
-
-	if useSystemMessage {
-		// For Ollama, use system message
-		response, err = s.callAPIWithSystem(systemPrompt, userPrompt)
-	} else {
-		// For OpenAI, use combined prompt
-		combinedPrompt := fmt.Sprintf(`%s
-
-%s`, systemPrompt, userPrompt)
-		response, err = s.callAPI(combinedPrompt)
-	}
+	response, err := s.callAPIWithSystem(systemPrompt, userPrompt)
 
 	if err != nil {
 		return &entity.ParsedIntent{

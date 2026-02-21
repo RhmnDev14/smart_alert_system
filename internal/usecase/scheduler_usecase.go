@@ -6,11 +6,12 @@ import (
 	"log"
 	"time"
 
-	"github.com/google/uuid"
 	"smart_alert_system/internal/domain/entity"
 	"smart_alert_system/internal/domain/repository"
 	"smart_alert_system/internal/infrastructure/ai"
-	"smart_alert_system/internal/infrastructure/whatsapp"
+	"smart_alert_system/internal/infrastructure/telegram"
+
+	"github.com/google/uuid"
 )
 
 type SchedulerUseCase struct {
@@ -19,7 +20,7 @@ type SchedulerUseCase struct {
 	healthRepo     repository.HealthRepository
 	alertRepo      repository.AlertRepository
 	aiService      ai.AIService
-	wahaClient     *whatsapp.WahaClient
+	telegramClient *telegram.TelegramClient
 }
 
 func NewSchedulerUseCase(
@@ -28,15 +29,15 @@ func NewSchedulerUseCase(
 	healthRepo repository.HealthRepository,
 	alertRepo repository.AlertRepository,
 	aiService ai.AIService,
-	wahaClient *whatsapp.WahaClient,
+	telegramClient *telegram.TelegramClient,
 ) *SchedulerUseCase {
 	return &SchedulerUseCase{
-		userRepo:     userRepo,
-		activityRepo: activityRepo,
-		healthRepo:   healthRepo,
-		alertRepo:    alertRepo,
-		aiService:    aiService,
-		wahaClient:   wahaClient,
+		userRepo:       userRepo,
+		activityRepo:   activityRepo,
+		healthRepo:     healthRepo,
+		alertRepo:      alertRepo,
+		aiService:      aiService,
+		telegramClient: telegramClient,
 	}
 }
 
@@ -56,7 +57,7 @@ func (uc *SchedulerUseCase) SendMorningAlerts(ctx context.Context) error {
 	return nil
 }
 
-func (uc *SchedulerUseCase) sendMorningAlertForUser(ctx context.Context, userID uuid.UUID, whatsappNumber string) error {
+func (uc *SchedulerUseCase) sendMorningAlertForUser(ctx context.Context, userID uuid.UUID, chatID string) error {
 	// Get today's activities
 	activities, err := uc.activityRepo.GetTodayActivities(ctx, userID)
 	if err != nil {
@@ -78,8 +79,8 @@ func (uc *SchedulerUseCase) sendMorningAlertForUser(ctx context.Context, userID 
 		return fmt.Errorf("failed to create alert log: %w", err)
 	}
 
-	// Send message
-	if err := uc.wahaClient.SendMessage(whatsappNumber, message); err != nil {
+	// Send message via Telegram
+	if err := uc.telegramClient.SendMessageByStringID(chatID, message); err != nil {
 		alert.MarkFailed(err)
 		uc.alertRepo.Update(ctx, alert)
 		return fmt.Errorf("failed to send message: %w", err)
@@ -107,7 +108,7 @@ func (uc *SchedulerUseCase) SendEveningSummaries(ctx context.Context) error {
 	return nil
 }
 
-func (uc *SchedulerUseCase) sendEveningSummaryForUser(ctx context.Context, userID uuid.UUID, whatsappNumber string) error {
+func (uc *SchedulerUseCase) sendEveningSummaryForUser(ctx context.Context, userID uuid.UUID, chatID string) error {
 	// Get completed activities today
 	activities, err := uc.activityRepo.GetCompletedToday(ctx, userID)
 	if err != nil {
@@ -129,8 +130,8 @@ func (uc *SchedulerUseCase) sendEveningSummaryForUser(ctx context.Context, userI
 		return fmt.Errorf("failed to create alert log: %w", err)
 	}
 
-	// Send message
-	if err := uc.wahaClient.SendMessage(whatsappNumber, message); err != nil {
+	// Send message via Telegram
+	if err := uc.telegramClient.SendMessageByStringID(chatID, message); err != nil {
 		alert.MarkFailed(err)
 		uc.alertRepo.Update(ctx, alert)
 		return fmt.Errorf("failed to send message: %w", err)
@@ -169,4 +170,3 @@ func (uc *SchedulerUseCase) generateDefaultEveningSummary(activities []*entity.A
 
 	return msg
 }
-

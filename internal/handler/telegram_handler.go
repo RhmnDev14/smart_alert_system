@@ -8,90 +8,50 @@ import (
 	"log"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"smart_alert_system/internal/domain/entity"
 	"smart_alert_system/internal/domain/repository"
 	"smart_alert_system/internal/infrastructure/ai"
-	"smart_alert_system/internal/infrastructure/whatsapp"
+	"smart_alert_system/internal/infrastructure/telegram"
 	"smart_alert_system/internal/usecase"
 	"smart_alert_system/internal/utils"
 
 	"github.com/google/uuid"
 )
 
-type WhatsAppHandler struct {
+type TelegramHandler struct {
 	userUseCase     *usecase.UserUseCase
 	activityUseCase *usecase.ActivityUseCase
 	aiService       ai.AIService
-	wahaClient      *whatsapp.WahaClient
+	telegramClient  *telegram.TelegramClient
 	messageRepo     repository.MessageRepository
 	alertRepo       repository.AlertRepository
 }
 
-func NewWhatsAppHandler(
+func NewTelegramHandler(
 	userUseCase *usecase.UserUseCase,
 	activityUseCase *usecase.ActivityUseCase,
 	aiService ai.AIService,
-	wahaClient *whatsapp.WahaClient,
+	telegramClient *telegram.TelegramClient,
 	messageRepo repository.MessageRepository,
 	alertRepo repository.AlertRepository,
-) *WhatsAppHandler {
-	return &WhatsAppHandler{
+) *TelegramHandler {
+	return &TelegramHandler{
 		userUseCase:     userUseCase,
 		activityUseCase: activityUseCase,
 		aiService:       aiService,
-		wahaClient:      wahaClient,
+		telegramClient:  telegramClient,
 		messageRepo:     messageRepo,
 		alertRepo:       alertRepo,
 	}
 }
 
-// Waha webhook payload structure
-type WebhookPayload struct {
-	ID        string      `json:"id"`
-	Timestamp int64       `json:"timestamp"`
-	Event     string      `json:"event"`
-	Session   string      `json:"session"`
-	Metadata  interface{} `json:"metadata"`
-	Me        struct {
-		ID       string `json:"id"`
-		PushName string `json:"pushName"`
-	} `json:"me"`
-	Payload MessageData `json:"payload"`
-}
-
-// MessageData structure from Waha (actual format)
-type MessageData struct {
-	ID        string      `json:"id"` // String format: "false_25675515867262@lid_AC91F329..."
-	Timestamp int64       `json:"timestamp"`
-	From      string      `json:"from"` // Format: "25675515867262@lid" or "6281234567890@c.us"
-	FromMe    bool        `json:"fromMe"`
-	Source    string      `json:"source"`
-	To        string      `json:"to"` // Format: "62881024952694@c.us"
-	Body      string      `json:"body"`
-	HasMedia  bool        `json:"hasMedia"`
-	Media     interface{} `json:"media"`
-	Ack       int         `json:"ack"`
-	AckName   string      `json:"ackName"`
-	Data      *struct {
-		ID   *MessageID `json:"id"` // Nested ID structure in _data
-		Type string     `json:"type"`
-		Body string     `json:"body"`
-		From string     `json:"from"`
-		To   string     `json:"to"`
-	} `json:"_data"`
-}
-
-func (h *WhatsAppHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
-	// Log incoming request
-	log.Printf("=== Webhook Request Received ===")
+// HandleWebhook handles incoming Telegram webhook updates (POST /webhook)
+func (h *TelegramHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
+	log.Printf("=== Telegram Webhook Received ===")
 	log.Printf("Method: %s", r.Method)
-	log.Printf("URL: %s", r.URL.String())
 	log.Printf("Remote Addr: %s", r.RemoteAddr)
-	log.Printf("User-Agent: %s", r.UserAgent())
-	log.Printf("Content-Type: %s", r.Header.Get("Content-Type"))
 
 	if r.Method != http.MethodPost {
 		log.Printf("❌ Method not allowed: %s", r.Method)
@@ -99,7 +59,6 @@ func (h *WhatsAppHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Read body for debugging
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		log.Printf("❌ Error reading request body: %v", err)
@@ -107,107 +66,93 @@ func (h *WhatsAppHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Log raw payload
 	log.Printf("📥 Raw Payload (length: %d bytes):", len(bodyBytes))
 	log.Printf("%s", string(bodyBytes))
 
-	var payload WebhookPayload
-	if err := json.Unmarshal(bodyBytes, &payload); err != nil {
-		log.Printf("❌ Error decoding webhook payload: %v", err)
-		log.Printf("Attempting to parse as legacy format...")
-
-		// Try alternative format (legacy format)
-		var altPayload struct {
-			Event string          `json:"event"`
-			Data  json.RawMessage `json:"data"`
-		}
-		if err2 := json.Unmarshal(bodyBytes, &altPayload); err2 == nil && altPayload.Event == "message" {
-			log.Printf("✓ Parsed as legacy format, event: %s", altPayload.Event)
-			var messageData MessageData
-			if err3 := json.Unmarshal(altPayload.Data, &messageData); err3 == nil {
-				log.Printf("✓ Message data parsed successfully")
-				log.Printf("  From: %s, Body: %s", messageData.From, messageData.Body)
-				go h.processMessage(context.Background(), messageData)
-				w.WriteHeader(http.StatusOK)
-				return
-			} else {
-				log.Printf("❌ Error unmarshaling legacy message data: %v", err3)
-			}
-		}
+	var update telegram.Update
+	if err := json.Unmarshal(bodyBytes, &update); err != nil {
+		log.Printf("❌ Error decoding update: %v", err)
 		http.Error(w, "Invalid payload", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("✓ Payload parsed successfully")
-	log.Printf("  Event: %s", payload.Event)
-	log.Printf("  Session: %s", payload.Session)
-
-	if payload.Event != "message" {
-		log.Printf("⚠️  Ignoring non-message event: %s", payload.Event)
+	// Only process text messages
+	if update.Message == nil || update.Message.Text == "" {
+		log.Printf("⚠️ Ignoring non-text update")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	// Log message details
 	log.Printf("📨 Message Details:")
-	log.Printf("  From: %s", payload.Payload.From)
-	log.Printf("  To: %s", payload.Payload.To)
-	log.Printf("  Body: %s", payload.Payload.Body)
-	log.Printf("  Type: %s", getMessageType(payload.Payload))
-	log.Printf("  Timestamp: %d", payload.Payload.Timestamp)
-	log.Printf("  FromMe: %v", payload.Payload.FromMe)
-	log.Printf("  ID: %s", payload.Payload.ID)
+	log.Printf("  From: %s (ID: %d)", update.Message.From.FirstName, update.Message.From.ID)
+	log.Printf("  Chat ID: %d", update.Message.Chat.ID)
+	log.Printf("  Text: %s", update.Message.Text)
 
 	// Process message asynchronously
-	log.Printf("🚀 Processing message asynchronously...")
-	go h.processMessage(context.Background(), payload.Payload)
+	go h.processMessage(context.Background(), update.Message)
 
 	w.WriteHeader(http.StatusOK)
 	log.Printf("✓ Response sent (200 OK)")
-	log.Printf("=== End Webhook Request ===\n")
+	log.Printf("=== End Telegram Webhook ===\n")
 }
 
-// Helper function to get message type
-func getMessageType(msg MessageData) string {
-	if msg.Data != nil && msg.Data.Type != "" {
-		return msg.Data.Type
+// StartLongPolling starts the Telegram long-polling loop to receive messages
+func (h *TelegramHandler) StartLongPolling(ctx context.Context) {
+	log.Println("🤖 Starting Telegram long-polling...")
+	offset := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("Stopping Telegram long-polling...")
+			return
+		default:
+			updates, err := h.telegramClient.GetUpdates(offset)
+			if err != nil {
+				log.Printf("❌ Error getting updates: %v", err)
+				time.Sleep(5 * time.Second)
+				continue
+			}
+
+			for _, update := range updates {
+				offset = update.UpdateID + 1
+
+				if update.Message == nil || update.Message.Text == "" {
+					continue
+				}
+
+				// Skip bot commands that start with /start (handled separately)
+				log.Printf("📨 New message from %s: %s", update.Message.From.FirstName, update.Message.Text)
+
+				go h.processMessage(ctx, update.Message)
+			}
+		}
 	}
-	return "chat" // Default type
 }
 
-// Message ID structure (nested in _data)
-type MessageID struct {
-	FromMe     bool   `json:"fromMe"`
-	Remote     string `json:"remote"`
-	ID         string `json:"id"`
-	Serialized string `json:"_serialized"`
-}
-
-func (h *WhatsAppHandler) processMessage(ctx context.Context, messageData MessageData) {
+func (h *TelegramHandler) processMessage(ctx context.Context, message *telegram.Message) {
 	log.Printf("🔄 Processing message...")
 
-	// Extract WhatsApp number from "from" field
-	// Format from Waha: "6281234567890@c.us" or "25675515867262@lid" or just number
-	whatsappNumber := messageData.From
-	if strings.Contains(whatsappNumber, "@") {
-		whatsappNumber = strings.Split(whatsappNumber, "@")[0]
+	// Use chat ID as the unique identifier (like WhatsApp number)
+	chatIDStr := fmt.Sprintf("%d", message.Chat.ID)
+	senderName := message.From.FirstName
+	if message.From.LastName != "" {
+		senderName += " " + message.From.LastName
 	}
-	// Remove "lid" prefix if exists (WhatsApp Business)
-	whatsappNumber = strings.TrimPrefix(whatsappNumber, "lid")
-	log.Printf("  Extracted WhatsApp number: %s", whatsappNumber)
+	log.Printf("  Chat ID: %s, Sender: %s", chatIDStr, senderName)
 
-	// Only process if message is not from us
-	if messageData.FromMe {
-		log.Printf("⚠️  Ignoring message from self (fromMe: true)")
+	// Only process if message is not from a bot
+	if message.From.IsBot {
+		log.Printf("⚠️ Ignoring message from bot")
 		return
 	}
 
-	messageContent := messageData.Body
+	messageContent := message.Text
 	log.Printf("  Message content: %s", messageContent)
 
-	// Get or create user
-	log.Printf("  Getting or creating user: %s", whatsappNumber)
-	user, err := h.userUseCase.GetOrCreateUser(ctx, whatsappNumber, "", "Asia/Jakarta")
+	// Get or create user (using chat ID as the identifier, stored in whatsapp_number field)
+	log.Printf("  Getting or creating user: %s", chatIDStr)
+	user, err := h.userUseCase.GetOrCreateUser(ctx, chatIDStr, senderName, "Asia/Jakarta")
 	if err != nil {
 		log.Printf("❌ Error getting/creating user: %v", err)
 		return
@@ -224,31 +169,22 @@ func (h *WhatsAppHandler) processMessage(ctx context.Context, messageData Messag
 
 	// Check if first time user
 	if user.IsFirstTime {
-		welcomeMsg := "Halo! Selamat datang di Smart Alert System. Saya akan membantu Anda mengelola kegiatan dan memberikan rekomendasi kesehatan.\n\nAnda bisa menambahkan kegiatan dengan format:\n• \"Besok saya akan olahraga jam 6 pagi\"\n• \"Hari ini ada meeting jam 2 siang\"\n• \"Tambah kegiatan [nama kegiatan] [waktu]\"\n\nSilakan coba kirim pesan untuk menambahkan kegiatan!"
-		log.Printf("  Sending welcome message to: %s", whatsappNumber)
+		welcomeMsg := "Halo! Selamat datang di Smart Alert System 🤖\n\nSaya akan membantu Anda mengelola kegiatan dan memberikan rekomendasi kesehatan.\n\nAnda bisa menambahkan kegiatan dengan format:\n• \"Besok saya akan olahraga jam 6 pagi\"\n• \"Hari ini ada meeting jam 2 siang\"\n• \"Tambah kegiatan [nama kegiatan] [waktu]\"\n\nSilakan coba kirim pesan untuk menambahkan kegiatan!"
+		log.Printf("  Sending welcome message to chat: %d", message.Chat.ID)
 
-		// Use original 'from' format for sending message (with @lid or @c.us)
-		sendTo := messageData.From
-		if err := h.wahaClient.SendMessage(sendTo, welcomeMsg); err != nil {
+		if err := h.telegramClient.SendMessage(message.Chat.ID, welcomeMsg); err != nil {
 			log.Printf("❌ Error sending welcome message: %v", err)
-			log.Printf("  Tried sending to: %s", sendTo)
 		} else {
 			log.Printf("✓ Welcome message sent successfully")
 			h.userUseCase.MarkAsNotFirstTime(ctx, user.ID)
-			// After welcome message, also try to process the current message if it contains activity
-			// This allows user to add activity in the first message
-			log.Printf("  Processing first message for activity detection...")
-			// Continue to process the message for activity
 		}
-		// Don't return early - continue processing the message to detect activity
 	}
 
 	// Parse intent with AI
 	log.Printf("  Parsing intent with AI...")
 	parsedIntent, err := h.aiService.ParseIntent(ctx, messageContent)
 	if err != nil {
-		log.Printf("⚠️  AI parsing failed, using fallback parser: %v", err)
-		// Use fallback parser when AI fails
+		log.Printf("⚠️ AI parsing failed, using fallback parser: %v", err)
 		parsedIntent = utils.FallbackIntentParser(messageContent, time.Now())
 		log.Printf("  ✓ Fallback intent detected: %s (confidence: %.2f)", parsedIntent.Type, parsedIntent.Confidence)
 		if len(parsedIntent.Entities) > 0 {
@@ -276,12 +212,9 @@ func (h *WhatsAppHandler) processMessage(ctx context.Context, messageData Messag
 	}
 
 	// Send response
-	// Use original 'from' format for sending message (with @lid or @c.us)
-	sendTo := messageData.From
-	log.Printf("  Sending response to: %s", sendTo)
-	if err := h.wahaClient.SendMessage(sendTo, response); err != nil {
+	log.Printf("  Sending response to chat: %d", message.Chat.ID)
+	if err := h.telegramClient.SendMessage(message.Chat.ID, response); err != nil {
 		log.Printf("❌ Error sending response: %v", err)
-		log.Printf("  Tried sending to: %s", sendTo)
 	} else {
 		log.Printf("✓ Response sent successfully")
 		// Save outgoing message
@@ -293,7 +226,7 @@ func (h *WhatsAppHandler) processMessage(ctx context.Context, messageData Messag
 	}
 }
 
-func (h *WhatsAppHandler) handleIntent(ctx context.Context, userID uuid.UUID, intent *entity.ParsedIntent, originalMessage string) (string, error) {
+func (h *TelegramHandler) handleIntent(ctx context.Context, userID uuid.UUID, intent *entity.ParsedIntent, originalMessage string) (string, error) {
 	switch intent.Type {
 	case entity.IntentAddActivity:
 		return h.handleAddActivity(ctx, userID, intent)
@@ -306,17 +239,16 @@ func (h *WhatsAppHandler) handleIntent(ctx context.Context, userID uuid.UUID, in
 	case entity.IntentQuestion:
 		return h.handleQuestion(ctx, userID, originalMessage)
 	case entity.IntentGreeting:
-		return "Halo! Ada yang bisa saya bantu hari ini?", nil
+		return "Halo! Ada yang bisa saya bantu hari ini? 😊", nil
 	default:
 		return "Maaf, saya belum memahami pesan Anda. Silakan coba lagi dengan format yang lebih jelas.", nil
 	}
 }
 
-func (h *WhatsAppHandler) handleAddActivity(ctx context.Context, userID uuid.UUID, intent *entity.ParsedIntent) (string, error) {
+func (h *TelegramHandler) handleAddActivity(ctx context.Context, userID uuid.UUID, intent *entity.ParsedIntent) (string, error) {
 	log.Printf("  📝 Processing add activity intent...")
 	data := extractActivityData(intent.Entities, time.Now())
 
-	// If title is empty, use description or ask user
 	if data.Title == "" {
 		if data.Description != "" {
 			data.Title = data.Description
@@ -338,11 +270,11 @@ func (h *WhatsAppHandler) handleAddActivity(ctx context.Context, userID uuid.UUI
 	log.Printf("✓ Activity created successfully: ID=%s, Title=%s, ScheduledTime=%s",
 		activity.ID, activity.Title, activity.ScheduledTime.Format("02 Jan 2006 15:04"))
 
-	return fmt.Sprintf("✓ Kegiatan '%s' berhasil ditambahkan untuk %s",
+	return fmt.Sprintf("✅ Kegiatan '%s' berhasil ditambahkan untuk %s",
 		activity.Title, activity.ScheduledTime.Format("02 Jan 2006 15:04")), nil
 }
 
-func (h *WhatsAppHandler) handleDeleteActivity(ctx context.Context, userID uuid.UUID, intent *entity.ParsedIntent) (string, error) {
+func (h *TelegramHandler) handleDeleteActivity(ctx context.Context, userID uuid.UUID, intent *entity.ParsedIntent) (string, error) {
 	activityIDStr, ok := intent.Entities["activity_id"].(string)
 	if !ok {
 		return "Maaf, ID kegiatan tidak ditemukan. Silakan coba lagi.", nil
@@ -357,10 +289,10 @@ func (h *WhatsAppHandler) handleDeleteActivity(ctx context.Context, userID uuid.
 		return "", fmt.Errorf("failed to delete activity: %w", err)
 	}
 
-	return "✓ Kegiatan berhasil dihapus.", nil
+	return "✅ Kegiatan berhasil dihapus.", nil
 }
 
-func (h *WhatsAppHandler) handleUpdateActivity(ctx context.Context, userID uuid.UUID, intent *entity.ParsedIntent) (string, error) {
+func (h *TelegramHandler) handleUpdateActivity(ctx context.Context, userID uuid.UUID, intent *entity.ParsedIntent) (string, error) {
 	activityIDStr, ok := intent.Entities["activity_id"].(string)
 	if !ok {
 		return "Maaf, ID kegiatan tidak ditemukan.", nil
@@ -376,10 +308,10 @@ func (h *WhatsAppHandler) handleUpdateActivity(ctx context.Context, userID uuid.
 		return "", fmt.Errorf("failed to update activity: %w", err)
 	}
 
-	return "✓ Kegiatan berhasil diupdate.", nil
+	return "✅ Kegiatan berhasil diupdate.", nil
 }
 
-func (h *WhatsAppHandler) handleListActivities(ctx context.Context, userID uuid.UUID) (string, error) {
+func (h *TelegramHandler) handleListActivities(ctx context.Context, userID uuid.UUID) (string, error) {
 	activities, err := h.activityUseCase.GetTodayActivities(ctx, userID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get activities: %w", err)
@@ -399,45 +331,36 @@ func (h *WhatsAppHandler) handleListActivities(ctx context.Context, userID uuid.
 	return response, nil
 }
 
-func (h *WhatsAppHandler) handleQuestion(ctx context.Context, userID uuid.UUID, question string) (string, error) {
-	// Use AI to answer general questions
+func (h *TelegramHandler) handleQuestion(ctx context.Context, userID uuid.UUID, question string) (string, error) {
 	_, err := h.aiService.ParseIntent(ctx, question)
 	if err != nil {
 		return "Maaf, saya tidak dapat menjawab pertanyaan tersebut saat ini.", nil
 	}
 
-	// For now, return a simple response
-	// In production, you'd want a dedicated Q&A endpoint
 	return "Terima kasih atas pertanyaannya. Fitur ini sedang dalam pengembangan.", nil
 }
 
 func extractActivityData(entities map[string]interface{}, baseTime time.Time) entity.ActivityIntentData {
 	data := entity.ActivityIntentData{}
 
-	// Extract title
 	if title, ok := entities["title"].(string); ok && title != "" {
 		data.Title = title
 	}
 
-	// Extract description
 	if desc, ok := entities["description"].(string); ok && desc != "" {
 		data.Description = desc
 	}
 
-	// Extract scheduled_time
 	if timeStr, ok := entities["scheduled_time"].(string); ok && timeStr != "" {
-		// Try parsing as ISO 8601 first
 		if parsedTime, err := utils.ParseISO8601Time(timeStr); err == nil {
 			data.ScheduledTime = parsedTime
 		} else {
-			// Try parsing as natural language (Indonesian)
 			if parsedTime, err := utils.ParseTimeFromText(timeStr, baseTime); err == nil && parsedTime != nil {
 				data.ScheduledTime = parsedTime
 			}
 		}
 	}
 
-	// Extract priority
 	if priority, ok := entities["priority"].(float64); ok {
 		data.Priority = int(priority)
 	} else if priorityStr, ok := entities["priority"].(string); ok {
@@ -446,7 +369,6 @@ func extractActivityData(entities map[string]interface{}, baseTime time.Time) en
 		}
 	}
 
-	// Extract category_id if provided
 	if catIDStr, ok := entities["category_id"].(string); ok {
 		if catID, err := uuid.Parse(catIDStr); err == nil {
 			data.CategoryID = &catID

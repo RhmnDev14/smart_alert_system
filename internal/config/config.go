@@ -17,9 +17,8 @@ type Config struct {
 	DBSSLMode   string
 	DatabaseURL string
 
-	// Waha Server
-	WahaServerURL string
-	WahaAPIKey    string
+	// Telegram Bot
+	TelegramBotToken string
 
 	// AI Configuration
 	AIProvider string
@@ -52,9 +51,8 @@ func Load() (*Config, error) {
 		DBSSLMode:   getEnv("DB_SSLMODE", "disable"),
 		DatabaseURL: getEnv("DATABASE_URL", ""),
 
-		// Waha Server
-		WahaServerURL: getEnv("WAHA_SERVER_URL", "http://localhost:3000"),
-		WahaAPIKey:    getEnv("WAHA_API_KEY", ""),
+		// Telegram Bot
+		TelegramBotToken: getEnv("TELEGRAM_BOT_TOKEN", ""),
 
 		// AI Configuration
 		AIProvider: getEnv("AI_PROVIDER", "openai"),
