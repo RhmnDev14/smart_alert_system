@@ -4,8 +4,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/google/uuid"
 	"smart_alert_system/internal/domain/entity"
+
+	"github.com/google/uuid"
 )
 
 type ActivityRepository interface {
@@ -18,5 +19,5 @@ type ActivityRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	GetTodayActivities(ctx context.Context, userID uuid.UUID) ([]*entity.Activity, error)
 	GetCompletedToday(ctx context.Context, userID uuid.UUID) ([]*entity.Activity, error)
+	GetPendingActivitiesToRemind(ctx context.Context, until time.Time) ([]*entity.Activity, error)
 }
-

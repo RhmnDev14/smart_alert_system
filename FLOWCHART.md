@@ -4,121 +4,83 @@
 
 ```mermaid
 flowchart TD
-    Start([Sistem Dimulai]) --> Init[Inisialisasi Server Waha]
-    Init --> Scheduler[Setup Scheduler]
-    Scheduler --> MorningAlert[Alert Pagi Jam 05:00]
-    Scheduler --> EveningSummary[Summary Malam Jam 22:00]
-    
-    Init --> WhatsAppListener[Listener WhatsApp Messages]
-    
-    WhatsAppListener --> CheckUser{User Baru?}
+    Start([Sistem Dimulai]) --> Init[Inisialisasi Server & Telegram Bot]
+    Init --> Scheduler[Setup Scheduler Dinamis]
+
+    Scheduler --> RealtimeReminder[Activity Reminder - Cek per 1 Menit]
+    Scheduler --> MorningAlert[Alert Pagi - Ambil Konfig dari .env]
+    Scheduler --> EveningSummary[Summary Malam - Ambil Konfig dari .env]
+
+    Init --> TelegramListener[Listener Telegram Messages via Long-polling]
+
+    TelegramListener --> CheckUser{User Baru?}
     CheckUser -->|Ya| SendWelcome[Kirim Pesan Welcome/Default]
-    CheckUser -->|Tidak| ParseMessage[Parse Pesan User]
-    
+    CheckUser -->|Tidak| AIGateway[Kirim Pesan ke AI Gateway]
+
     SendWelcome --> EndMsg([Selesai])
-    
-    ParseMessage --> AIProcess[Proses dengan AI]
-    AIProcess --> ExtractIntent[Ekstrak Intent & Data]
-    ExtractIntent --> IntentType{Type Intent?}
-    
-    IntentType -->|Tambah Kegiatan| SaveActivity[Simpan Kegiatan ke DB]
-    IntentType -->|Hapus Kegiatan| DeleteActivity[Hapus Kegiatan dari DB]
-    IntentType -->|Lihat Kegiatan| GetActivities[Ambil Daftar Kegiatan]
-    IntentType -->|Update Kegiatan| UpdateActivity[Update Kegiatan]
-    IntentType -->|Pertanyaan Umum| GenerateResponse[Generate Response AI]
-    
-    SaveActivity --> ConfirmSave[Konfirmasi Kegiatan Tersimpan]
-    DeleteActivity --> ConfirmDelete[Konfirmasi Kegiatan Dihapus]
-    GetActivities --> FormatActivities[Format Daftar Kegiatan]
-    UpdateActivity --> ConfirmUpdate[Konfirmasi Kegiatan Diupdate]
-    GenerateResponse --> SendResponse[Kirim Response]
-    
-    ConfirmSave --> EndMsg
-    ConfirmDelete --> EndMsg
-    FormatActivities --> EndMsg
-    ConfirmUpdate --> EndMsg
-    SendResponse --> EndMsg
-    
-    MorningAlert --> GetTodayActivities[Ambil Kegiatan Hari Ini]
-    GetTodayActivities --> GenerateHealthTips[Generate Tips Kesehatan AI]
-    GenerateHealthTips --> FormatMorningAlert[Format Alert Pagi]
-    FormatMorningAlert --> SendMorningAlert[Kirim Alert ke User]
+
+    AIGateway --> ProcessMsg[Proses Obrolan Natural & Analisis Jadwal]
+    ProcessMsg --> CheckSchedule{Ada Konteks Jadwal?}
+
+    CheckSchedule -->|Ya| ExtractData[Mengekstrak JSON Jadwal Event]
+    CheckSchedule -->|Tidak| SkipExtract[Skipping - Hanya Murni Obrolan]
+
+    ExtractData --> InsertDB[Simpan Jadwal ke DB secara Sinkron]
+    InsertDB --> SendAIResponse[Telegram Kirim Respons AI ke User]
+    SkipExtract --> SendAIResponse
+    SendAIResponse --> EndMsg
+
+    MorningAlert --> ProcessMorning[AI Generate Ucapan Motivasi, Rekap Jadwal & Menanya Rencana Tambahan]
+    ProcessMorning --> SendMorningAlert[Telegram Kirim Alert Pagi ke User]
     SendMorningAlert --> EndAlert([Selesai])
-    
-    EveningSummary --> GetTodayCompleted[Ambil Kegiatan Selesai Hari Ini]
-    GetTodayCompleted --> AnalyzeActivities[Analisis Kegiatan dengan AI]
-    AnalyzeActivities --> GenerateSummary[Generate Summary & Rekomendasi]
-    GenerateSummary --> FormatEveningSummary[Format Summary Malam]
-    FormatEveningSummary --> SendEveningSummary[Kirim Summary ke User]
+
+    EveningSummary --> ProcessEvening[AI Generate Ringkasan Selesai, Analisa Pola & Insight Kesehatan]
+    ProcessEvening --> SendEveningSummary[Telegram Kirim Summary Malam ke User]
     SendEveningSummary --> EndSummary([Selesai])
+
+    RealtimeReminder --> FetchPending[Ambil Aktivitas Pending yang Tiba Masanya]
+    FetchPending --> SendReminder[Kirim Notifikasi via Telegram]
+    SendReminder --> EndReminder([Selesai])
 ```
 
-## 2. Flowchart Proses AI untuk Parsing Pesan
+## 2. Flowchart Proses Gateway AI
 
 ```mermaid
 flowchart TD
-    Start([Pesan Masuk]) --> Preprocess[Preprocess Pesan]
-    Preprocess --> AIExtract[AI Extract Intent & Entities]
-    AIExtract --> Intent{Intent Terdeteksi?}
-    
-    Intent -->|Tambah Kegiatan| ExtractActivity[Extract: Nama, Waktu, Deskripsi]
-    Intent -->|Hapus Kegiatan| ExtractID[Extract: ID Kegiatan]
-    Intent -->|Update Kegiatan| ExtractUpdate[Extract: ID, Field, Value]
-    Intent -->|Lihat Kegiatan| ExtractDate[Extract: Tanggal Optional]
-    Intent -->|Pertanyaan| ExtractQuestion[Extract: Pertanyaan]
-    Intent -->|Tidak Jelas| Fallback[Fallback: Tanya Kembali]
-    
-    ExtractActivity --> ValidateActivity{Valid?}
-    ExtractID --> ValidateID{Valid?}
-    ExtractUpdate --> ValidateUpdate{Valid?}
-    ExtractDate --> GetActivities[Ambil Kegiatan]
-    ExtractQuestion --> ProcessQuestion[Proses Pertanyaan]
-    Fallback --> SendClarification[Kirim Pesan Klarifikasi]
-    
-    ValidateActivity -->|Ya| ReturnActivity[Return Activity Data]
-    ValidateActivity -->|Tidak| SendError[Kirim Error Message]
-    
-    ValidateID -->|Ya| ReturnID[Return ID]
-    ValidateID -->|Tidak| SendError
-    
-    ValidateUpdate -->|Ya| ReturnUpdate[Return Update Data]
-    ValidateUpdate -->|Tidak| SendError
-    
-    GetActivities --> ReturnActivities[Return Activities]
-    ProcessQuestion --> ReturnAnswer[Return Answer]
-    
-    ReturnActivity --> End([Selesai])
-    ReturnID --> End
-    ReturnUpdate --> End
-    ReturnActivities --> End
-    ReturnAnswer --> End
-    SendError --> End
-    SendClarification --> End
+    Start([Pesan Masuk]) --> InsertSystemPrompt[Sisipkan Datetime & Instruksi Sistem]
+    InsertSystemPrompt --> AIProcessing[Model AI Menganalisa & Merespons Pesan]
+
+    AIProcessing --> OutputFormat{Return Valid JSON?}
+
+    OutputFormat -->|Tidak Valid| FallbackResponse[Ambil Raw String sbg Response Obrolan Biasa]
+    OutputFormat -->|Valid| Extract[Ekstrak obj JSON: Response & Schedule]
+
+    Extract --> HasSchedule{has_schedule == true?}
+    HasSchedule -->|Tidak| OnlyResponse[Kembalikan Reponse Saja]
+    HasSchedule -->|Ya| ExtractScheduleData[Ekstrak: Judul, Deskripsi, Schedule_Time, Priority]
+
+    OnlyResponse --> End([Selesai - Gateway Mengembalikan Obrolan])
+    ExtractScheduleData --> End
+    FallbackResponse --> End
 ```
 
 ## 3. Flowchart Scheduler Alert Pagi
 
 ```mermaid
 flowchart TD
-    Start([Jam 05:00]) --> GetAllUsers[Ambil Semua User Aktif]
+    Start([Jam Konfigurasi .env]) --> GetAllUsers[Ambil Semua User Aktif]
     GetAllUsers --> LoopUser{Ada User?}
-    
+
     LoopUser -->|Ya| GetUserActivities[Ambil Kegiatan User Hari Ini]
     LoopUser -->|Tidak| End([Selesai])
-    
-    GetUserActivities --> CheckActivities{Ada Kegiatan?}
-    
-    CheckActivities -->|Ya| GetHealthContext[Ambil Konteks Kesehatan User]
-    CheckActivities -->|Tidak| GenerateGeneralTips[Generate Tips Umum]
-    
+
+    GetUserActivities --> GetHealthContext[Ambil Konteks Kesehatan User]
+
     GetHealthContext --> AnalyzeWithAI[Analisis dengan AI]
-    AnalyzeWithAI --> GeneratePersonalizedTips[Generate Tips Personalisasi]
-    GenerateGeneralTips --> FormatGeneralAlert[Format Alert Umum]
-    GeneratePersonalizedTips --> FormatPersonalizedAlert[Format Alert Personalisasi]
-    
-    FormatGeneralAlert --> SendAlert[Kirim Alert ke User]
-    FormatPersonalizedAlert --> SendAlert
-    
+    AnalyzeWithAI --> GenerateAlert[Generate Ucapan Motivasi, Rekap Acara, Nanya Rencana Tambahan]
+
+    GenerateAlert --> SendAlert[Kirim Alert via Telegram ke User]
+
     SendAlert --> NextUser[User Berikutnya]
     NextUser --> LoopUser
 ```
@@ -127,55 +89,41 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Start([Jam 22:00]) --> GetAllUsers[Ambil Semua User Aktif]
+    Start([Jam Konfigurasi .env]) --> GetAllUsers[Ambil Semua User Aktif]
     GetAllUsers --> LoopUser{Ada User?}
-    
-    LoopUser -->|Ya| GetTodayActivities[Ambil Kegiatan Hari Ini]
+
+    LoopUser -->|Ya| GetTodayActivities[Ambil Kegiatan Harian Status Completed]
     LoopUser -->|Tidak| End([Selesai])
-    
-    GetTodayActivities --> CategorizeActivities[Kategorisasi Kegiatan]
-    CategorizeActivities --> AnalyzeCompletion[Analisis Tingkat Penyelesaian]
-    AnalyzeCompletion --> GetHealthPatterns[Analisis Pola Kesehatan]
-    
-    GetHealthPatterns --> AIAnalysis[Analisis dengan AI]
-    AIAnalysis --> GenerateInsights[Generate Insights]
-    GenerateInsights --> GenerateRecommendations[Generate Rekomendasi]
-    
-    GenerateRecommendations --> FormatSummary[Format Summary]
-    FormatSummary --> SendSummary[Kirim Summary ke User]
-    
+
+    GetTodayActivities --> AIAnalysis[Disalurkan ke AI]
+    AIAnalysis --> GenerateInsights[AI Generate Obrolan, Ringkasan, Pola Produktivitas, Feedback & Rekomendasi Hari Esok]
+
+    GenerateInsights --> SendSummary[Kirim Summary via Telegram ke User]
+
     SendSummary --> NextUser[User Berikutnya]
     NextUser --> LoopUser
 ```
 
-## 5. Flowchart Proses Input Kegiatan User
+## 5. Flowchart Pengingat Real-Time (Per-Menit)
 
 ```mermaid
 flowchart TD
-    Start([User Input Kegiatan]) --> ReceiveMessage[Terima Pesan WhatsApp]
-    ReceiveMessage --> AIParse[AI Parse Pesan]
-    
-    AIParse --> ExtractInfo[Extract: Nama, Waktu, Deskripsi, Kategori]
-    ExtractInfo --> ValidateTime{Waktu Valid?}
-    
-    ValidateTime -->|Tidak| AskTime[Kirim Pesan: Mohon Spesifik Waktu]
-    AskTime --> WaitResponse[Tunggu Response User]
-    WaitResponse --> ReceiveMessage
-    
-    ValidateTime -->|Ya| CheckConflict{Cek Konflik Waktu?}
-    CheckConflict -->|Ada Konflik| NotifyConflict[Notifikasi Konflik]
-    NotifyConflict --> AskConfirm{Tanya Konfirmasi}
-    
-    AskConfirm -->|Ya| SaveActivity[Simpan Kegiatan]
-    AskConfirm -->|Tidak| CancelSave[Batal Simpan]
-    
-    CheckConflict -->|Tidak Ada| SaveActivity
-    
-    SaveActivity --> GenerateConfirmation[Generate Konfirmasi]
-    GenerateConfirmation --> SendConfirmation[Kirim Konfirmasi ke User]
-    
-    CancelSave --> End([Selesai])
-    SendConfirmation --> End
+    Start([Cron: Setiap Menit]) --> GetPending[Ambil Aktivitas Status 'Pending' dg Time <= Now()]
+    GetPending --> LoopActivity{Ada Kegiatan Expired?}
+
+    LoopActivity -->|Tidak| End([Selesai])
+    LoopActivity -->|Ya| CheckReminded{Sudah Diremind?}
+
+    CheckReminded -->|Ya| NextActivity
+    CheckReminded -->|Tidak| GetUserDetail[Ambil Profil User Terkait]
+
+    GetUserDetail --> FormatMsg[Format Notifikasi: Pengingat, Judul, Waktu, Catatan]
+    FormatMsg --> SendTelegram[Kirim Notifikasi via Telegram]
+
+    SendTelegram --> UpdateStatus[Update Kolom `ReminderTime`]
+    UpdateStatus --> NextActivity[Kegiatan Berikutnya]
+
+    NextActivity --> LoopActivity
 ```
 
 ## 6. Flowchart Sistem AI untuk Rekomendasi Kesehatan
@@ -185,15 +133,14 @@ flowchart TD
     Start([Trigger AI Health]) --> GetUserProfile[Ambil Profil User]
     GetUserProfile --> GetActivityHistory[Ambil History Kegiatan]
     GetActivityHistory --> GetHealthData[Ambil Data Kesehatan User]
-    
+
     GetHealthData --> AnalyzePattern[Analisis Pola Kegiatan]
     AnalyzePattern --> IdentifyHealthIssues[Identifikasi Masalah Kesehatan Potensial]
-    
+
     IdentifyHealthIssues --> Contextualize[Kontekstualisasi dengan Kegiatan]
     Contextualize --> GenerateRecommendations[Generate Rekomendasi Spesifik]
-    
+
     GenerateRecommendations --> FormatRecommendation[Format Rekomendasi]
     FormatRecommendation --> ReturnRecommendation[Return Rekomendasi]
     ReturnRecommendation --> End([Selesai])
 ```
-

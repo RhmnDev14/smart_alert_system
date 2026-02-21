@@ -6,16 +6,17 @@ import (
 	"log"
 	"time"
 
-	"github.com/robfig/cron/v3"
 	"smart_alert_system/internal/usecase"
+
+	"github.com/robfig/cron/v3"
 )
 
 type Scheduler struct {
-	cron          *cron.Cron
-	schedulerUC   *usecase.SchedulerUseCase
-	morningTime   string
-	eveningTime   string
-	location      *time.Location
+	cron        *cron.Cron
+	schedulerUC *usecase.SchedulerUseCase
+	morningTime string
+	eveningTime string
+	location    *time.Location
 }
 
 func NewScheduler(schedulerUC *usecase.SchedulerUseCase, morningTime, eveningTime string, location *time.Location) *Scheduler {
@@ -56,8 +57,19 @@ func (s *Scheduler) Start() error {
 		return fmt.Errorf("failed to schedule evening summary: %w", err)
 	}
 
+	// Schedule activity reminder every minute
+	_, err = s.cron.AddFunc("* * * * *", func() {
+		ctx := context.Background()
+		if err := s.schedulerUC.SendActivityReminders(ctx); err != nil {
+			log.Printf("Error sending activity reminders: %v", err)
+		}
+	})
+	if err != nil {
+		return fmt.Errorf("failed to schedule activity reminders: %w", err)
+	}
+
 	s.cron.Start()
-	log.Printf("Scheduler started. Morning alert: %s (%s), Evening summary: %s (%s)", 
+	log.Printf("Scheduler started. Morning alert: %s (%s), Evening summary: %s (%s), Reminders: * * * * *",
 		s.morningTime, morningCron, s.eveningTime, eveningCron)
 	return nil
 }
@@ -78,4 +90,3 @@ func (s *Scheduler) Stop() {
 	s.cron.Stop()
 	log.Println("Scheduler stopped")
 }
-
