@@ -177,15 +177,18 @@ func (uc *SchedulerUseCase) SendActivityReminders(ctx context.Context) error {
 		}
 		localScheduledTime := activity.ScheduledTime.In(loc)
 
-		// Generate reminder message
-		message := fmt.Sprintf("⏰ *PENGINGAT KEGIATAN*\n\nSudah waktunya untuk kegiatan:\n*❖ %s*\n\nWaktu: %s\n",
-			activity.Title, localScheduledTime.Format("15:04"))
+		// Generate reminder message dynamically with AI
+		message, err := uc.aiService.GenerateActivityReminder(ctx, activity.Title, activity.Description, localScheduledTime.Format("15:04"))
+		if err != nil {
+			log.Printf("⚠️ AI API failed to generate reminder for %s, using fallback", activity.Title)
+			// Fallback if AI fails
+			message = fmt.Sprintf("⏰ *PENGINGAT KEGIATAN*\n\nSudah waktunya untuk kegiatan:\n*❖ %s*\n\nWaktu: %s\n",
+				activity.Title, localScheduledTime.Format("15:04"))
 
-		if activity.Description != "" {
-			message += fmt.Sprintf("Catatan: %s\n", activity.Description)
+			if activity.Description != "" {
+				message += fmt.Sprintf("Catatan: %s\n", activity.Description)
+			}
 		}
-
-		message += "\nSemoga lancar! 💪"
 
 		// Send message via Telegram
 		if err := uc.telegramClient.SendMessageByStringID(user.WhatsAppNumber, message); err != nil {

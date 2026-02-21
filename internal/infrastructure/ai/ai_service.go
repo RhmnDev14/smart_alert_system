@@ -24,6 +24,8 @@ type AIService interface {
 	GenerateMorningAlert(ctx context.Context, activities []*entity.Activity, healthProfile *entity.UserHealthProfile) (string, error)
 	// GenerateEveningSummary generates evening summary content
 	GenerateEveningSummary(ctx context.Context, activities []*entity.Activity, healthProfile *entity.UserHealthProfile) (string, error)
+	// GenerateActivityReminder generates dynamic engaging reminder for a specific activity
+	GenerateActivityReminder(ctx context.Context, title, description, timeStr string) (string, error)
 }
 
 type OpenAIService struct {
@@ -270,6 +272,21 @@ Kegiatan yang telah Selesai hari ini:
 Profil Kesehatan User (jadikan referensi jika perlu): %s
 
 Buat pesan yang reflektif, mendukung, dan memotivasi untuk beristirahat.`, activitiesStr, formatHealthProfileForAI(healthProfile))
+
+	return s.callAPI(prompt)
+}
+
+func (s *OpenAIService) GenerateActivityReminder(ctx context.Context, title, description, timeStr string) (string, error) {
+	prompt := fmt.Sprintf(`Buatkan pesan pengingat (Reminder) singkat, natural, asyik, dan tidak kaku dalam bahasa Indonesia untuk kegiatan berikut:
+Judul Kegiatan: %s
+Jam: %s
+Catatan/Deskripsi: %s
+
+Kriteria:
+1. Sapa user dengan ceria layaknya asisten pribadi yang ramah, dan ingatkan bahwa sudah saatnya untuk kegiatan tersebut.
+2. Gunakan emoji yang relevan dengan kegiatannya.
+3. Pesannya harus ringkas (cukup 1-2 paragraf pendek atau kalimat singkat yang memotivasi).
+`, title, timeStr, description)
 
 	return s.callAPI(prompt)
 }
