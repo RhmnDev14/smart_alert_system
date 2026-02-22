@@ -1,29 +1,30 @@
 package scheduler
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"time"
 
-	"smart_alert_system/internal/usecase"
+	"smart_alert_system/internal/infrastructure/jobqueue"
+	"smart_alert_system/internal/infrastructure/queue"
 
 	"github.com/robfig/cron/v3"
 )
 
 type Scheduler struct {
 	cron        *cron.Cron
-	schedulerUC *usecase.SchedulerUseCase
+	producer    queue.TaskProducer
 	morningTime string
 	eveningTime string
 	location    *time.Location
 }
 
-func NewScheduler(schedulerUC *usecase.SchedulerUseCase, morningTime, eveningTime string, location *time.Location) *Scheduler {
+func NewScheduler(producer queue.TaskProducer, morningTime, eveningTime string, location *time.Location) *Scheduler {
 	c := cron.New(cron.WithLocation(location))
+
 	return &Scheduler{
 		cron:        c,
-		schedulerUC: schedulerUC,
+		producer:    producer,
 		morningTime: morningTime,
 		eveningTime: eveningTime,
 		location:    location,
@@ -34,10 +35,8 @@ func (s *Scheduler) Start() error {
 	// Schedule morning alert (format: "05:00" -> "0 5 * * *")
 	morningCron := s.parseTimeToCron(s.morningTime)
 	_, err := s.cron.AddFunc(morningCron, func() {
-		log.Println("Running morning alert scheduler...")
-		ctx := context.Background()
-		if err := s.schedulerUC.SendMorningAlerts(ctx); err != nil {
-			log.Printf("Error sending morning alerts: %v", err)
+		if err := s.producer.Publish(jobqueue.TaskMorningAlert, nil, 1); err != nil {
+			log.Printf("Scheduler: Error enqueuing Morning Alert task: %v", err)
 		}
 	})
 	if err != nil {
@@ -47,10 +46,8 @@ func (s *Scheduler) Start() error {
 	// Schedule evening summary (format: "22:00" -> "0 22 * * *")
 	eveningCron := s.parseTimeToCron(s.eveningTime)
 	_, err = s.cron.AddFunc(eveningCron, func() {
-		log.Println("Running evening summary scheduler...")
-		ctx := context.Background()
-		if err := s.schedulerUC.SendEveningSummaries(ctx); err != nil {
-			log.Printf("Error sending evening summaries: %v", err)
+		if err := s.producer.Publish(jobqueue.TaskEveningSummary, nil, 1); err != nil {
+			log.Printf("Scheduler: Error enqueuing Evening Summary task: %v", err)
 		}
 	})
 	if err != nil {
@@ -59,9 +56,8 @@ func (s *Scheduler) Start() error {
 
 	// Schedule activity reminder every minute
 	_, err = s.cron.AddFunc("* * * * *", func() {
-		ctx := context.Background()
-		if err := s.schedulerUC.SendActivityReminders(ctx); err != nil {
-			log.Printf("Error sending activity reminders: %v", err)
+		if err := s.producer.Publish(jobqueue.TaskActivityReminder, nil, 1); err != nil {
+			log.Printf("Scheduler: Error enqueuing Activity Reminder task: %v", err)
 		}
 	})
 	if err != nil {
@@ -77,7 +73,7 @@ func (s *Scheduler) Start() error {
 func (s *Scheduler) parseTimeToCron(timeStr string) string {
 	// Parse time string like "05:00" or "22:00" to cron format "0 H * * *"
 	// For simplicity, assume format is "HH:MM"
-	if len(timeStr) >= 5 {
+	if len(timeStr) > 4 {
 		hour := timeStr[0:2]
 		minute := timeStr[3:5]
 		return minute + " " + hour + " * * *"

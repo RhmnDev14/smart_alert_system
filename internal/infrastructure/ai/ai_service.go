@@ -67,7 +67,10 @@ type Choice struct {
 }
 
 func (s *OpenAIService) callAPIWithSystem(systemPrompt, userPrompt string) (string, error) {
-	url := fmt.Sprintf("%s/chat/completions", s.baseURL)
+	url := s.baseURL
+	if !strings.HasSuffix(url, "/chat/completions") {
+		url = fmt.Sprintf("%s/chat/completions", strings.TrimSuffix(s.baseURL, "/"))
+	}
 
 	reqBody := OpenAIRequest{
 		Model: s.model,
@@ -91,6 +94,9 @@ func (s *OpenAIService) callAPIWithSystem(systemPrompt, userPrompt string) (stri
 	if s.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+s.apiKey)
 	}
+	// Important for OpenRouter routing
+	req.Header.Set("HTTP-Referer", "https://smart-alert-system.local")
+	req.Header.Set("X-Title", "Smart Alert System")
 
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -116,7 +122,10 @@ func (s *OpenAIService) callAPIWithSystem(systemPrompt, userPrompt string) (stri
 }
 
 func (s *OpenAIService) callAPI(prompt string) (string, error) {
-	url := fmt.Sprintf("%s/chat/completions", s.baseURL)
+	url := s.baseURL
+	if !strings.HasSuffix(url, "/chat/completions") {
+		url = fmt.Sprintf("%s/chat/completions", strings.TrimSuffix(s.baseURL, "/"))
+	}
 
 	reqBody := OpenAIRequest{
 		Model: s.model,
@@ -139,6 +148,9 @@ func (s *OpenAIService) callAPI(prompt string) (string, error) {
 	if s.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+s.apiKey)
 	}
+	// Important for OpenRouter routing
+	req.Header.Set("HTTP-Referer", "https://smart-alert-system.local")
+	req.Header.Set("X-Title", "Smart Alert System")
 
 	resp, err := s.client.Do(req)
 	if err != nil {

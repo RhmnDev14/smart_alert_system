@@ -24,7 +24,7 @@ func (r *activityRepository) Create(ctx context.Context, activity *entity.Activi
 	          reminder_time, status, priority, created_at, updated_at, completed_at)
 	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
 
-	_, err := r.db.DB.ExecContext(ctx, query,
+	_, err := r.db.Ext(ctx).ExecContext(ctx, query,
 		activity.ID, activity.UserID, activity.CategoryID, activity.Title, activity.Description,
 		activity.ScheduledTime, activity.ReminderTime, activity.Status, activity.Priority,
 		activity.CreatedAt, activity.UpdatedAt, activity.CompletedAt)
@@ -40,7 +40,7 @@ func (r *activityRepository) GetByID(ctx context.Context, id uuid.UUID) (*entity
 	var categoryID sql.NullString
 	var reminderTime, completedAt sql.NullTime
 
-	err := r.db.DB.QueryRowContext(ctx, query, id).Scan(
+	err := r.db.Ext(ctx).QueryRowContext(ctx, query, id).Scan(
 		&activity.ID, &activity.UserID, &categoryID, &activity.Title, &activity.Description,
 		&activity.ScheduledTime, &reminderTime, &activity.Status, &activity.Priority,
 		&activity.CreatedAt, &activity.UpdatedAt, &completedAt)
@@ -83,7 +83,7 @@ func (r *activityRepository) GetByUserIDAndDate(ctx context.Context, userID uuid
 	          FROM activities WHERE user_id = $1 AND scheduled_time >= $2 AND scheduled_time < $3
 	          ORDER BY scheduled_time ASC`
 
-	rows, err := r.db.DB.QueryContext(ctx, query, userID, startOfDay, endOfDay)
+	rows, err := r.db.Ext(ctx).QueryContext(ctx, query, userID, startOfDay, endOfDay)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +105,7 @@ func (r *activityRepository) Update(ctx context.Context, activity *entity.Activi
 	          reminder_time = $5, status = $6, priority = $7, updated_at = $8, completed_at = $9
 	          WHERE id = $10`
 
-	_, err := r.db.DB.ExecContext(ctx, query,
+	_, err := r.db.Ext(ctx).ExecContext(ctx, query,
 		activity.CategoryID, activity.Title, activity.Description, activity.ScheduledTime,
 		activity.ReminderTime, activity.Status, activity.Priority, activity.UpdatedAt,
 		activity.CompletedAt, activity.ID)
@@ -114,7 +114,7 @@ func (r *activityRepository) Update(ctx context.Context, activity *entity.Activi
 
 func (r *activityRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `DELETE FROM activities WHERE id = $1`
-	_, err := r.db.DB.ExecContext(ctx, query, id)
+	_, err := r.db.Ext(ctx).ExecContext(ctx, query, id)
 	return err
 }
 
@@ -135,7 +135,7 @@ func (r *activityRepository) GetCompletedToday(ctx context.Context, userID uuid.
 	          FROM activities WHERE user_id = $1 AND status = $2 AND completed_at >= $3 AND completed_at < $4
 	          ORDER BY completed_at ASC`
 
-	rows, err := r.db.DB.QueryContext(ctx, query, userID, entity.ActivityStatusCompleted, startOfDay, endOfDay)
+	rows, err := r.db.Ext(ctx).QueryContext(ctx, query, userID, entity.ActivityStatusCompleted, startOfDay, endOfDay)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +153,7 @@ func (r *activityRepository) GetPendingActivitiesToRemind(ctx context.Context, u
 	          AND reminder_time IS NULL
 	          ORDER BY scheduled_time ASC`
 
-	rows, err := r.db.DB.QueryContext(ctx, query, entity.ActivityStatusPending, until)
+	rows, err := r.db.Ext(ctx).QueryContext(ctx, query, entity.ActivityStatusPending, until)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +163,7 @@ func (r *activityRepository) GetPendingActivitiesToRemind(ctx context.Context, u
 }
 
 func (r *activityRepository) scanActivities(ctx context.Context, query string, args ...interface{}) ([]*entity.Activity, error) {
-	rows, err := r.db.DB.QueryContext(ctx, query, args...)
+	rows, err := r.db.Ext(ctx).QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

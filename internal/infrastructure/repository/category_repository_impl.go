@@ -20,7 +20,7 @@ func NewCategoryRepository(db *database.PostgresDB) *categoryRepository {
 func (r *categoryRepository) GetAll(ctx context.Context) ([]*entity.ActivityCategory, error) {
 	query := `SELECT id, name, description, icon, color FROM activity_categories ORDER BY name`
 	
-	rows, err := r.db.DB.QueryContext(ctx, query)
+	rows, err := r.db.Ext(ctx).QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +42,7 @@ func (r *categoryRepository) GetByID(ctx context.Context, id uuid.UUID) (*entity
 	query := `SELECT id, name, description, icon, color FROM activity_categories WHERE id = $1`
 	
 	category := &entity.ActivityCategory{}
-	err := r.db.DB.QueryRowContext(ctx, query, id).Scan(
+	err := r.db.Ext(ctx).QueryRowContext(ctx, query, id).Scan(
 		&category.ID, &category.Name, &category.Description, &category.Icon, &category.Color)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -54,7 +54,7 @@ func (r *categoryRepository) GetByName(ctx context.Context, name string) (*entit
 	query := `SELECT id, name, description, icon, color FROM activity_categories WHERE name = $1`
 	
 	category := &entity.ActivityCategory{}
-	err := r.db.DB.QueryRowContext(ctx, query, name).Scan(
+	err := r.db.Ext(ctx).QueryRowContext(ctx, query, name).Scan(
 		&category.ID, &category.Name, &category.Description, &category.Icon, &category.Color)
 	if err == sql.ErrNoRows {
 		return nil, nil

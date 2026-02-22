@@ -32,6 +32,12 @@ type Config struct {
 	Timezone string
 	AppName  string
 
+	// Redis for Asynq
+	RedisHost     string
+	RedisPort     string
+	RedisPassword string
+	RedisDB       int
+
 	// Scheduler
 	MorningAlertTime   string
 	EveningSummaryTime string
@@ -65,6 +71,12 @@ func Load() (*Config, error) {
 		AppPort:  getEnv("APP_PORT", "8080"),
 		Timezone: getEnv("TIMEZONE", "Asia/Jakarta"),
 		AppName:  "Smart Alert System",
+
+		// Redis for Asynq
+		RedisHost:     getEnv("REDIS_HOST", "localhost"),
+		RedisPort:     getEnv("REDIS_PORT", "6379"),
+		RedisPassword: getEnv("REDIS_PASSWORD", ""),
+		RedisDB:       0,
 
 		// Scheduler
 		MorningAlertTime:   getEnv("MORNING_ALERT_TIME", "05:00"),

@@ -25,7 +25,7 @@ func (r *healthRepository) GetHealthProfileByUserID(ctx context.Context, userID 
 	profile := &entity.UserHealthProfile{}
 	var age sql.NullInt64
 	
-	err := r.db.DB.QueryRowContext(ctx, query, userID).Scan(
+	err := r.db.Ext(ctx).QueryRowContext(ctx, query, userID).Scan(
 		&profile.ID, &profile.UserID, &age, &profile.Gender, &profile.MedicalConditions,
 		&profile.Allergies, &profile.Medications, &profile.ActivityPreferences,
 		&profile.HealthGoals, &profile.CreatedAt, &profile.UpdatedAt)
@@ -55,7 +55,7 @@ func (r *healthRepository) CreateOrUpdateHealthProfile(ctx context.Context, prof
 	          activity_preferences = EXCLUDED.activity_preferences, health_goals = EXCLUDED.health_goals,
 	          updated_at = EXCLUDED.updated_at`
 	
-	_, err := r.db.DB.ExecContext(ctx, query,
+	_, err := r.db.Ext(ctx).ExecContext(ctx, query,
 		profile.ID, profile.UserID, profile.Age, profile.Gender, profile.MedicalConditions,
 		profile.Allergies, profile.Medications, profile.ActivityPreferences, profile.HealthGoals,
 		profile.CreatedAt, profile.UpdatedAt)
@@ -65,7 +65,7 @@ func (r *healthRepository) CreateOrUpdateHealthProfile(ctx context.Context, prof
 func (r *healthRepository) GetRecommendationTypes(ctx context.Context) ([]*entity.RecommendationType, error) {
 	query := `SELECT id, name, description, trigger_condition FROM recommendation_types ORDER BY name`
 	
-	rows, err := r.db.DB.QueryContext(ctx, query)
+	rows, err := r.db.Ext(ctx).QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +88,7 @@ func (r *healthRepository) CreateRecommendation(ctx context.Context, recommendat
 	          activity_id, generated_at, sent_at, is_read, priority)
 	          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
 	
-	_, err := r.db.DB.ExecContext(ctx, query,
+	_, err := r.db.Ext(ctx).ExecContext(ctx, query,
 		recommendation.ID, recommendation.UserID, recommendation.RecommendationTypeID, recommendation.RecommendationText,
 		recommendation.ActivityID, recommendation.GeneratedAt, recommendation.SentAt,
 		recommendation.IsRead, recommendation.Priority)
@@ -100,7 +100,7 @@ func (r *healthRepository) GetRecommendationsByUserID(ctx context.Context, userI
 	          generated_at, sent_at, is_read, priority
 	          FROM health_recommendations WHERE user_id = $1 ORDER BY generated_at DESC`
 	
-	rows, err := r.db.DB.QueryContext(ctx, query, userID)
+	rows, err := r.db.Ext(ctx).QueryContext(ctx, query, userID)
 	if err != nil {
 		return nil, err
 	}

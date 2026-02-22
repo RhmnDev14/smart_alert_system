@@ -9,6 +9,7 @@ import (
 	"smart_alert_system/internal/domain/entity"
 	"smart_alert_system/internal/domain/repository"
 	"smart_alert_system/internal/infrastructure/ai"
+	"smart_alert_system/internal/infrastructure/queue"
 	"smart_alert_system/internal/infrastructure/telegram"
 
 	"github.com/google/uuid"
@@ -21,6 +22,8 @@ type SchedulerUseCase struct {
 	alertRepo      repository.AlertRepository
 	aiService      ai.AIService
 	telegramClient *telegram.TelegramClient
+	producer       queue.TaskProducer
+	txManager      repository.TransactionManager
 }
 
 func NewSchedulerUseCase(
@@ -30,6 +33,8 @@ func NewSchedulerUseCase(
 	alertRepo repository.AlertRepository,
 	aiService ai.AIService,
 	telegramClient *telegram.TelegramClient,
+	producer queue.TaskProducer,
+	txManager repository.TransactionManager,
 ) *SchedulerUseCase {
 	return &SchedulerUseCase{
 		userRepo:       userRepo,
@@ -38,6 +43,8 @@ func NewSchedulerUseCase(
 		alertRepo:      alertRepo,
 		aiService:      aiService,
 		telegramClient: telegramClient,
+		producer:       producer,
+		txManager:      txManager,
 	}
 }
 
@@ -48,56 +55,70 @@ func (uc *SchedulerUseCase) SendMorningAlerts(ctx context.Context) error {
 	}
 
 	for _, user := range users {
-		if err := uc.sendMorningAlertForUser(ctx, user.ID, user.WhatsAppNumber); err != nil {
-			log.Printf("Error sending morning alert to user %s: %v", user.ID, err)
-			continue
+		payload := []byte(user.ID.String())
+		if err := uc.producer.Publish("scheduler:process_morning_alert", payload, 1); err != nil {
+			log.Printf("Failed to publish task to process morning alert for user %s: %v", user.ID, err)
+		} else {
+			log.Printf("Successfully published morning alert task for %s", user.ID)
 		}
 	}
 
 	return nil
 }
 
-func (uc *SchedulerUseCase) sendMorningAlertForUser(ctx context.Context, userID uuid.UUID, chatID string) error {
-	// Get today's activities
-	allActivities, err := uc.activityRepo.GetTodayActivities(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("failed to get activities: %w", err)
-	}
-
-	// Filter only pending activities for morning alert
-	var activities []*entity.Activity
-	for _, act := range allActivities {
-		if act.Status == entity.ActivityStatusPending {
-			activities = append(activities, act)
+func (uc *SchedulerUseCase) ProcessSingleMorningAlert(ctx context.Context, userIDStr string) error {
+	return uc.txManager.RunInTx(ctx, func(txCtx context.Context) error {
+		userID, err := uuid.Parse(userIDStr)
+		if err != nil {
+			return fmt.Errorf("invalid user id format: %w", err)
 		}
-	}
 
-	// Get health profile
-	healthProfile, _ := uc.healthRepo.GetHealthProfileByUserID(ctx, userID)
+		user, err := uc.userRepo.GetByID(txCtx, userID)
+		if err != nil || user == nil {
+			return fmt.Errorf("failed to get user: %w", err)
+		}
 
-	// Generate alert message
-	message, err := uc.aiService.GenerateMorningAlert(ctx, activities, healthProfile)
-	if err != nil {
-		message = uc.generateDefaultMorningAlert(activities)
-	}
+		// Get today's activities
+		allActivities, err := uc.activityRepo.GetTodayActivities(txCtx, userID)
+		if err != nil {
+			return fmt.Errorf("failed to get activities: %w", err)
+		}
 
-	// Create alert log
-	alert := entity.NewAlertLog(userID, entity.AlertTypeMorning, message, time.Now())
-	if err := uc.alertRepo.Create(ctx, alert); err != nil {
-		return fmt.Errorf("failed to create alert log: %w", err)
-	}
+		// Filter only pending activities for morning alert
+		var activities []*entity.Activity
+		for _, act := range allActivities {
+			if act.Status == entity.ActivityStatusPending {
+				activities = append(activities, act)
+			}
+		}
 
-	// Send message via Telegram
-	if err := uc.telegramClient.SendMessageByStringID(chatID, message); err != nil {
-		alert.MarkFailed(err)
-		uc.alertRepo.Update(ctx, alert)
-		return fmt.Errorf("failed to send message: %w", err)
-	}
+		// Get health profile
+		healthProfile, _ := uc.healthRepo.GetHealthProfileByUserID(txCtx, userID)
 
-	alert.MarkSent()
-	uc.alertRepo.Update(ctx, alert)
+		// Generate alert message
+		message, err := uc.aiService.GenerateMorningAlert(txCtx, activities, healthProfile)
+		if err != nil {
+			message = uc.generateDefaultMorningAlert(activities)
+		}
 
-	return nil
+		// Create alert log
+		alert := entity.NewAlertLog(userID, entity.AlertTypeMorning, message, time.Now())
+		if err := uc.alertRepo.Create(txCtx, alert); err != nil {
+			return fmt.Errorf("failed to create alert log: %w", err)
+		}
+
+		// Send message via Telegram
+		if err := uc.telegramClient.SendMessageByStringID(user.WhatsAppNumber, message); err != nil {
+			alert.MarkFailed(err)
+			uc.alertRepo.Update(txCtx, alert)
+			return fmt.Errorf("failed to send message: %w", err)
+		}
+
+		alert.MarkSent()
+		uc.alertRepo.Update(txCtx, alert)
+
+		return nil
+	})
 }
 
 func (uc *SchedulerUseCase) SendEveningSummaries(ctx context.Context) error {
@@ -107,48 +128,62 @@ func (uc *SchedulerUseCase) SendEveningSummaries(ctx context.Context) error {
 	}
 
 	for _, user := range users {
-		if err := uc.sendEveningSummaryForUser(ctx, user.ID, user.WhatsAppNumber); err != nil {
-			log.Printf("Error sending evening summary to user %s: %v", user.ID, err)
-			continue
+		payload := []byte(user.ID.String())
+		if err := uc.producer.Publish("scheduler:process_evening_summary", payload, 1); err != nil {
+			log.Printf("Failed to publish task to process evening summary for user %s: %v", user.ID, err)
+		} else {
+			log.Printf("Successfully published evening summary task for %s", user.ID)
 		}
 	}
 
 	return nil
 }
 
-func (uc *SchedulerUseCase) sendEveningSummaryForUser(ctx context.Context, userID uuid.UUID, chatID string) error {
-	// Get completed activities today
-	activities, err := uc.activityRepo.GetCompletedToday(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("failed to get completed activities: %w", err)
-	}
+func (uc *SchedulerUseCase) ProcessSingleEveningSummary(ctx context.Context, userIDStr string) error {
+	return uc.txManager.RunInTx(ctx, func(txCtx context.Context) error {
+		userID, err := uuid.Parse(userIDStr)
+		if err != nil {
+			return fmt.Errorf("invalid user id format: %w", err)
+		}
 
-	// Get health profile
-	healthProfile, _ := uc.healthRepo.GetHealthProfileByUserID(ctx, userID)
+		user, err := uc.userRepo.GetByID(txCtx, userID)
+		if err != nil || user == nil {
+			return fmt.Errorf("failed to get user: %w", err)
+		}
 
-	// Generate summary message
-	message, err := uc.aiService.GenerateEveningSummary(ctx, activities, healthProfile)
-	if err != nil {
-		message = uc.generateDefaultEveningSummary(activities)
-	}
+		// Get completed activities today
+		activities, err := uc.activityRepo.GetCompletedToday(txCtx, userID)
+		if err != nil {
+			return fmt.Errorf("failed to get completed activities: %w", err)
+		}
 
-	// Create alert log
-	alert := entity.NewAlertLog(userID, entity.AlertTypeEvening, message, time.Now())
-	if err := uc.alertRepo.Create(ctx, alert); err != nil {
-		return fmt.Errorf("failed to create alert log: %w", err)
-	}
+		// Get health profile
+		healthProfile, _ := uc.healthRepo.GetHealthProfileByUserID(txCtx, userID)
 
-	// Send message via Telegram
-	if err := uc.telegramClient.SendMessageByStringID(chatID, message); err != nil {
-		alert.MarkFailed(err)
-		uc.alertRepo.Update(ctx, alert)
-		return fmt.Errorf("failed to send message: %w", err)
-	}
+		// Generate summary message
+		message, err := uc.aiService.GenerateEveningSummary(txCtx, activities, healthProfile)
+		if err != nil {
+			message = uc.generateDefaultEveningSummary(activities)
+		}
 
-	alert.MarkSent()
-	uc.alertRepo.Update(ctx, alert)
+		// Create alert log
+		alert := entity.NewAlertLog(userID, entity.AlertTypeEvening, message, time.Now())
+		if err := uc.alertRepo.Create(txCtx, alert); err != nil {
+			return fmt.Errorf("failed to create alert log: %w", err)
+		}
 
-	return nil
+		// Send message via Telegram
+		if err := uc.telegramClient.SendMessageByStringID(user.WhatsAppNumber, message); err != nil {
+			alert.MarkFailed(err)
+			uc.alertRepo.Update(txCtx, alert)
+			return fmt.Errorf("failed to send message: %w", err)
+		}
+
+		alert.MarkSent()
+		uc.alertRepo.Update(txCtx, alert)
+
+		return nil
+	})
 }
 
 func (uc *SchedulerUseCase) SendActivityReminders(ctx context.Context) error {
@@ -161,11 +196,42 @@ func (uc *SchedulerUseCase) SendActivityReminders(ctx context.Context) error {
 	}
 
 	for _, activity := range activities {
-		// Get user to send message
-		user, err := uc.userRepo.GetByID(ctx, activity.UserID)
+		// Just enqueue the payload
+		payload := []byte(activity.ID.String())
+		// Assuming we will publish using "scheduler:process_activity_reminder"
+		// Retries param is set to 2.
+		if err := uc.producer.Publish("scheduler:process_activity_reminder", payload, 1); err != nil {
+			log.Printf("Failed to publish task to process activity reminder %s: %v", activity.ID, err)
+		} else {
+			log.Printf("Successfully published activity reminder task for %s", activity.ID)
+		}
+	}
+
+	return nil
+}
+
+func (uc *SchedulerUseCase) ProcessSingleActivityReminder(ctx context.Context, activityIDStr string) error {
+	return uc.txManager.RunInTx(ctx, func(txCtx context.Context) error {
+		now := time.Now()
+		activityID, err := uuid.Parse(activityIDStr)
+		if err != nil {
+			return fmt.Errorf("invalid activity id format: %w", err)
+		}
+
+		activity, err := uc.activityRepo.GetByID(txCtx, activityID)
+		if err != nil || activity == nil {
+			return fmt.Errorf("failed to get activity %s: %w", activityIDStr, err)
+		}
+
+		// Double check to ensure it hasn't been completed or reminded concurrently
+		if activity.Status == entity.ActivityStatusCompleted || activity.ReminderTime != nil {
+			log.Printf("Activity %s already processed or reminded. Skipping.", activityIDStr)
+			return nil
+		}
+
+		user, err := uc.userRepo.GetByID(txCtx, activity.UserID)
 		if err != nil || user == nil {
-			log.Printf("Error getting user for activity %s: %v", activity.ID, err)
-			continue
+			return fmt.Errorf("failed to get user for activity %s: %w", activityID, err)
 		}
 
 		// Adjust time to user's timezone if available
@@ -178,7 +244,7 @@ func (uc *SchedulerUseCase) SendActivityReminders(ctx context.Context) error {
 		localScheduledTime := activity.ScheduledTime.In(loc)
 
 		// Generate reminder message dynamically with AI
-		message, err := uc.aiService.GenerateActivityReminder(ctx, activity.Title, activity.Description, localScheduledTime.Format("15:04"))
+		message, err := uc.aiService.GenerateActivityReminder(txCtx, activity.Title, activity.Description, localScheduledTime.Format("15:04"))
 		if err != nil {
 			log.Printf("⚠️ AI API failed to generate reminder for %s, using fallback", activity.Title)
 			// Fallback if AI fails
@@ -193,21 +259,23 @@ func (uc *SchedulerUseCase) SendActivityReminders(ctx context.Context) error {
 		// Send message via Telegram
 		if err := uc.telegramClient.SendMessageByStringID(user.WhatsAppNumber, message); err != nil {
 			log.Printf("Failed to send reminder for activity %s (User %s): %v", activity.ID, user.WhatsAppNumber, err)
-			// Proceed to update reminder_time anyway so it doesn't try again and spam the logs/API
+			// Return error to trigger queue retry (up to 2 times, as defined during Publish)
+			return err
 		}
 
 		// Update activity to mark it as reminded AND completed
 		activity.ReminderTime = &now
 		activity.Status = entity.ActivityStatusCompleted
 		activity.CompletedAt = &now
-		if err := uc.activityRepo.Update(ctx, activity); err != nil {
+		if err := uc.activityRepo.Update(txCtx, activity); err != nil {
 			log.Printf("Failed to update status & reminder_time for activity %s: %v", activity.ID, err)
+			return err
 		} else {
-			log.Printf("✓ Reminder processed and marked completed for activity %s", activity.Title)
+			log.Printf("✓ Reminder sent and marked completed for activity %s", activity.Title)
 		}
-	}
 
-	return nil
+		return nil
+	})
 }
 
 func (uc *SchedulerUseCase) generateDefaultMorningAlert(activities []*entity.Activity) string {

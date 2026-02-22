@@ -4,12 +4,29 @@
 
 ```mermaid
 flowchart TD
-    Start([Sistem Dimulai]) --> Init[Inisialisasi Server & Telegram Bot]
+    Start([Sistem Dimulai]) --> Init[Inisialisasi Server, Redis & Telegram Bot]
     Init --> Scheduler[Setup Scheduler Dinamis]
 
     Scheduler --> RealtimeReminder[Activity Reminder - Cek per 1 Menit]
     Scheduler --> MorningAlert[Alert Pagi - Ambil Konfig dari .env]
     Scheduler --> EveningSummary[Summary Malam - Ambil Konfig dari .env]
+
+    RealtimeReminder --> PushQueue1[Publish Tugas ke Redis Queue Asynq]
+    MorningAlert --> PushQueue2[Publish Tugas ke Redis Queue Asynq]
+    EveningSummary --> PushQueue3[Publish Tugas ke Redis Queue Asynq]
+
+    PushQueue1 --> AsynqWorker[Background Worker Jobqueue]
+    PushQueue2 --> AsynqWorker
+    PushQueue3 --> AsynqWorker
+
+    AsynqWorker --> ProcessJobs{Jalankan Proses & Transaksi DB}
+
+    ProcessJobs -->|Error / Gagal| RetryLogic[Rollback DB & Retry via Queue]
+    ProcessJobs -->|Sukses| SendCronMsg[Kirim Format/Notifikasi ke Telegram]
+
+    SendCronMsg --> CommitDB[Commit Perubahan Status di DB]
+    CommitDB --> EndJob([Selesai])
+    RetryLogic -.-> PushQueue1
 
     Init --> TelegramListener[Listener Telegram Messages via Long-polling]
 
@@ -29,18 +46,6 @@ flowchart TD
     InsertDB --> SendAIResponse[Telegram Kirim Respons AI ke User]
     SkipExtract --> SendAIResponse
     SendAIResponse --> EndMsg
-
-    MorningAlert --> ProcessMorning[AI Generate Ucapan Motivasi, Rekap Jadwal & Menanya Rencana Tambahan]
-    ProcessMorning --> SendMorningAlert[Telegram Kirim Alert Pagi ke User]
-    SendMorningAlert --> EndAlert([Selesai])
-
-    EveningSummary --> ProcessEvening[AI Generate Ringkasan Selesai, Analisa Pola & Insight Kesehatan]
-    ProcessEvening --> SendEveningSummary[Telegram Kirim Summary Malam ke User]
-    SendEveningSummary --> EndSummary([Selesai])
-
-    RealtimeReminder --> FetchPending[Ambil Aktivitas Pending yang Tiba Masanya]
-    FetchPending --> SendReminder[Kirim Notifikasi via Telegram]
-    SendReminder --> EndReminder([Selesai])
 ```
 
 ## 2. Flowchart Proses Gateway AI

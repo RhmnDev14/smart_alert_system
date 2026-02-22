@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"smart_alert_system/internal/domain/entity"
 	"smart_alert_system/internal/domain/repository"
+
+	"github.com/google/uuid"
 )
 
 type ActivityUseCase struct {
@@ -61,63 +62,3 @@ func (uc *ActivityUseCase) CreateActivity(ctx context.Context, userID uuid.UUID,
 
 	return activity, nil
 }
-
-func (uc *ActivityUseCase) GetUserActivities(ctx context.Context, userID uuid.UUID) ([]*entity.Activity, error) {
-	return uc.activityRepo.GetByUserID(ctx, userID)
-}
-
-func (uc *ActivityUseCase) GetTodayActivities(ctx context.Context, userID uuid.UUID) ([]*entity.Activity, error) {
-	return uc.activityRepo.GetTodayActivities(ctx, userID)
-}
-
-func (uc *ActivityUseCase) GetCompletedToday(ctx context.Context, userID uuid.UUID) ([]*entity.Activity, error) {
-	return uc.activityRepo.GetCompletedToday(ctx, userID)
-}
-
-func (uc *ActivityUseCase) UpdateActivity(ctx context.Context, activityID uuid.UUID, data entity.UpdateActivityIntentData) error {
-	activity, err := uc.activityRepo.GetByID(ctx, activityID)
-	if err != nil {
-		return fmt.Errorf("failed to get activity: %w", err)
-	}
-	if activity == nil {
-		return fmt.Errorf("activity not found")
-	}
-
-	if data.Title != nil {
-		activity.Title = *data.Title
-	}
-	if data.Description != nil {
-		activity.Description = *data.Description
-	}
-	if data.ScheduledTime != nil {
-		activity.ScheduledTime = *data.ScheduledTime
-	}
-	if data.Status != nil {
-		activity.Status = entity.ActivityStatus(*data.Status)
-	}
-	if data.Priority != nil {
-		activity.Priority = *data.Priority
-	}
-
-	activity.UpdatedAt = time.Now()
-
-	return uc.activityRepo.Update(ctx, activity)
-}
-
-func (uc *ActivityUseCase) DeleteActivity(ctx context.Context, activityID uuid.UUID) error {
-	return uc.activityRepo.Delete(ctx, activityID)
-}
-
-func (uc *ActivityUseCase) CompleteActivity(ctx context.Context, activityID uuid.UUID) error {
-	activity, err := uc.activityRepo.GetByID(ctx, activityID)
-	if err != nil {
-		return fmt.Errorf("failed to get activity: %w", err)
-	}
-	if activity == nil {
-		return fmt.Errorf("activity not found")
-	}
-
-	activity.Complete()
-	return uc.activityRepo.Update(ctx, activity)
-}
-

@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"smart_alert_system/internal/domain/entity"
 	"smart_alert_system/internal/domain/repository"
+
+	"github.com/google/uuid"
 )
 
 type UserUseCase struct {
@@ -48,8 +49,3 @@ func (uc *UserUseCase) GetOrCreateUser(ctx context.Context, whatsappNumber, name
 func (uc *UserUseCase) MarkAsNotFirstTime(ctx context.Context, userID uuid.UUID) error {
 	return uc.userRepo.MarkAsNotFirstTime(ctx, userID)
 }
-
-func (uc *UserUseCase) GetAllActiveUsers(ctx context.Context) ([]*entity.User, error) {
-	return uc.userRepo.GetAllActive(ctx)
-}
-
