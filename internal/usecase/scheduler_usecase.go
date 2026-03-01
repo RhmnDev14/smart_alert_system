@@ -154,11 +154,8 @@ func (uc *SchedulerUseCase) ProcessSingleEveningSummary(ctx context.Context, use
 			return fmt.Errorf("failed to get completed activities: %w", err)
 		}
 
-		// Get health profile
-		healthProfile, _ := uc.healthRepo.GetHealthProfileByUserID(txCtx, userID)
-
-		// Generate summary message
-		message, err := uc.aiService.GenerateEveningSummary(txCtx, activities, healthProfile)
+		// Generate summary message (health profile no longer needed)
+		message, err := uc.aiService.GenerateEveningSummary(txCtx, activities, nil)
 		if err != nil {
 			message = uc.generateDefaultEveningSummary(activities)
 		}
@@ -293,15 +290,14 @@ func (uc *SchedulerUseCase) generateDefaultMorningAlert(activities []*entity.Act
 
 func (uc *SchedulerUseCase) generateDefaultEveningSummary(activities []*entity.Activity) string {
 	if len(activities) == 0 {
-		return "Selamat malam! 🌙\n\nHari ini Anda tidak merekam kegiatan yang diselesaikan. Mari bersiap dan rencanakan aktivitas yang baik untuk esok hari.\n\nRekomendasi: Cobalah tidur sedikit lebih awal malam ini untuk menjaga kebugaran tubuh esok pagi. Istirahat yang cukup sangat penting!\n\nSmart Alert System\nDevelop by Rahman Umardi"
+		return "Selamat malam! 🌙\n\nTidak ada kegiatan yang tercatat hari ini.\nIstirahat yang cukup ya! 😊\n\nSmart Alert System\nDevelop by Rahman Umardi"
 	}
 
-	msg := "Selamat malam! 🌙\n\nWah, Anda telah melewati hari ini dengan luar biasa! Berikut adalah ringkasan kegiatan yang telah Anda selesaikan hari ini:\n\n"
+	msg := "Selamat malam! 🌙\n\nBerikut rangkuman kegiatan yang telah kamu selesaikan hari ini:\n\n"
 	for i, activity := range activities {
-		msg += fmt.Sprintf("%d. ✓ %s\n", i+1, activity.Title)
+		msg += fmt.Sprintf("%d. ✅ %s\n", i+1, activity.Title)
 	}
-
-	msg += fmt.Sprintf("\nTotal: %d kegiatan diselesaikan. Bagus sekali!\n\nAnalisis & Rekomendasi:\nAnda memiliki tingkat produktivitas yang terpantau aktif hari ini. Pastikan Anda merilekskan otot-otot dan menjauhi layar sebelum tidur demi kualitas istirahat yang optimal.\n\nSelamat beristirahat dengan damai!\n\nSmart Alert System\nDevelop by Rahman Umardi", len(activities))
+	msg += fmt.Sprintf("\nTotal: %d kegiatan diselesaikan. \n\nSmart Alert System\nDevelop by Rahman Umardi", len(activities))
 
 	return msg
 }

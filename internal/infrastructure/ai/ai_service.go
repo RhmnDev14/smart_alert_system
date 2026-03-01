@@ -425,8 +425,7 @@ func (s *OpenAIService) GenerateMorningAlert(ctx context.Context, activities []*
 2. Jika ada kegiatan terjadwal hari ini, tampilkan daftar jadwal kegiatannya beserta jam-nya.
 3. Jika tidak ada kegiatan, sampaikan bahwa belum ada jadwal hari ini.
 4. Tanyakan apakah ada kegiatan lain yang ingin ditambahkan untuk hari ini.
-5. JANGAN berikan tips kesehatan atau motivasi panjang. Buat pesan singkat dan to the point.
-6. DI AKHIR PESAN, SELALU TAMBAHKAN TEKS PERSIS SEPERTI INI:
+5. DI AKHIR PESAN, SELALU TAMBAHKAN TEKS PERSIS SEPERTI INI:
 Smart Alert System
 Develop by Rahman Umardi
 
@@ -442,20 +441,17 @@ func (s *OpenAIService) GenerateEveningSummary(ctx context.Context, activities [
 	activitiesStr := formatActivitiesForAI(activities)
 
 	prompt := fmt.Sprintf(`Buatkan pesan ringkasan malam hari (Evening Summary) dalam bahasa Indonesia dengan kriteria berikut:
-1. Sapa user dengan ramah dan apresiasi usaha mereka hari ini.
-2. Berikan ringkasan kegiatan yang telah dilakukan (completed) hari ini.
-3. Berikan analisis singkat terkait pola kegiatan mereka hari ini (misalnya terlalu sibuk, cukup seimbang, atau kurang aktivitas fisik).
-4. Berikan rekomendasi kesehatan yang relevan untuk dipersiapkan menghadap hari esok.
-5. DI AKHIR PESAN, SELALU TAMBAHKAN TEKS PERSIS SEPERTI INI (jangan gunakan format markdown bold):
+1. Sapa user dengan ramah.
+2. Berikan rangkuman kegiatan yang telah diselesaikan hari ini beserta waktunya.
+3. Jika tidak ada kegiatan yang diselesaikan, sampaikan bahwa tidak ada kegiatan yang tercatat hari ini.
+4. DI AKHIR PESAN, SELALU TAMBAHKAN TEKS PERSIS SEPERTI INI:
 Smart Alert System
 Develop by Rahman Umardi
 
-Kegiatan yang telah Selesai hari ini:
+Kegiatan yang telah diselesaikan hari ini:
 %s
 
-Profil Kesehatan User (jadikan referensi jika perlu): %s
-
-Buat pesan yang reflektif, mendukung, dan memotivasi untuk beristirahat.`, activitiesStr, formatHealthProfileForAI(healthProfile))
+Buat pesan yang singkat dan bersahabat.`, activitiesStr)
 
 	return s.callAPI(prompt)
 }
