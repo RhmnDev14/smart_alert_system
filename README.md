@@ -1,19 +1,19 @@
 # Smart Alert System
 
-Sistem alert pintar yang mengintegrasikan AI dan Telegram untuk mengingatkan kegiatan user yang diagendakan serta memberikan rekomendasi kesehatan — dilengkapi fitur **Persistent Memory** dan **Multi-turn Conversation**.
+Sistem alert pintar yang mengintegrasikan AI dan Telegram untuk mengingatkan serta mengelola kegiatan user yang diagendakan — dilengkapi fitur **Persistent Memory** dan **Multi-turn Conversation**.
+
+🤖 **Cobalah Bot Ini di Telegram:** [@SmartAlertActivity_bot](https://t.me/SmartAlertActivity_bot)
 
 ## Fitur Utama
 
 1. **Alert Pagi (05:00 - Dinamis via .env)**
-   - Menyapa user dengan penuh semangat dan motivasi
+   - Menyapa user untuk memulai hari
    - Mengingatkan jadwal kegiatan yang diagendakan hari ini
-   - Menanyakan apakah ada tambahan rencana/kegiatan lain hari ini
-   - Memberikan tips kesehatan personalisasi berdasarkan kegiatan
+   - Menanyakan apakah ada tambahan rencana/kegiatan lain untuk hari ini
 
 2. **Summary Malam (22:00 - Dinamis via .env)**
-   - Merangkum kegiatan yang telah diselesaikan hari ini
-   - Menganalisis pola kegiatan (kesibukan, aktivitas fisik, dll)
-   - Memberikan rekomendasi kesehatan sebagai persiapan hari esok
+   - Merangkum daftar kegiatan yang telah diselesaikan hari ini
+   - Memberikan pesan penutup untuk beristirahat
 
 3. **Pengingat Real-Time (Activity Reminder)**
    - Sistem aktif mengecek setiap menit (cron job)

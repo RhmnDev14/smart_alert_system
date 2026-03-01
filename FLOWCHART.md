@@ -101,10 +101,8 @@ flowchart TD
     LoopUser -->|Ya| GetUserActivities[Ambil Kegiatan User Hari Ini]
     LoopUser -->|Tidak| End([Selesai])
 
-    GetUserActivities --> GetHealthContext[Ambil Konteks Kesehatan User]
-
-    GetHealthContext --> AnalyzeWithAI[Analisis dengan AI]
-    AnalyzeWithAI --> GenerateAlert[Generate Ucapan Motivasi, Rekap Acara, Nanya Rencana Tambahan]
+    GetUserActivities --> AnalyzeWithAI[Dikirim ke AI Gateway]
+    AnalyzeWithAI --> GenerateAlert[Generate Sapaan Pagi, Rekap Jadwal Hari Ini & Tanya Rencana Tambahan]
 
     GenerateAlert --> SendAlert[Kirim Alert via Telegram ke User]
 
@@ -122,8 +120,8 @@ flowchart TD
     LoopUser -->|Ya| GetTodayActivities[Ambil Kegiatan Harian Status Completed]
     LoopUser -->|Tidak| End([Selesai])
 
-    GetTodayActivities --> AIAnalysis[Disalurkan ke AI]
-    AIAnalysis --> GenerateInsights[AI Generate Obrolan, Ringkasan, Pola Produktivitas, Feedback & Rekomendasi Hari Esok]
+    GetTodayActivities --> AIAnalysis[Disalurkan ke AI Gateway]
+    AIAnalysis --> GenerateInsights[AI Generate Sapaan & Ringkasan Berupa List Kegiatan Selesai Hari Ini]
 
     GenerateInsights --> SendSummary[Kirim Summary via Telegram ke User]
 
@@ -153,7 +151,7 @@ flowchart TD
     NextActivity --> LoopActivity
 ```
 
-## 7. Flowchart Persistent Memory (OpenClaw-style)
+## 6. Flowchart Persistent Memory (OpenClaw-style)
 
 ```mermaid
 flowchart TD
@@ -180,7 +178,7 @@ flowchart TD
     InsertDB --> Done
 ```
 
-## 8. Flowchart Multi-turn Conversation
+## 7. Flowchart Multi-turn Conversation
 
 ```mermaid
 flowchart TD
