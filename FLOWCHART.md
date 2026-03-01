@@ -32,40 +32,62 @@ flowchart TD
 
     TelegramListener --> CheckUser{User Baru?}
     CheckUser -->|Ya| SendWelcome[Kirim Pesan Welcome/Default]
-    CheckUser -->|Tidak| AIGateway[Kirim Pesan ke AI Gateway]
+    CheckUser -->|Tidak| LoadContext[Load Chat History & User Memories dari DB]
 
     SendWelcome --> EndMsg([Selesai])
 
-    AIGateway --> ProcessMsg[Proses Obrolan Natural & Analisis Jadwal]
-    ProcessMsg --> CheckSchedule{Ada Konteks Jadwal?}
+    LoadContext --> AIGateway[Kirim ke AI Gateway dengan Multi-turn Messages + Memory]
+    AIGateway --> ProcessMsg[Proses Obrolan Natural & Deteksi Intent CRUD]
+    ProcessMsg --> DetectAction{Deteksi Action?}
 
-    CheckSchedule -->|Ya| ExtractData[Mengekstrak JSON Jadwal Event]
-    CheckSchedule -->|Tidak| SkipExtract[Skipping - Hanya Murni Obrolan]
+    DetectAction -->|create| CreateFlow[Ekstrak JSON Jadwal & Simpan ke DB]
+    DetectAction -->|get| GetFlow[Query Data Kegiatan User dari DB]
+    DetectAction -->|update| UpdateFlow["Cari Kegiatan (Fuzzy/Trigram) & Update di DB"]
+    DetectAction -->|none| ChatOnly[Hanya Obrolan Biasa / Tanya Klarifikasi]
 
-    ExtractData --> InsertDB[Simpan Jadwal ke DB secara Sinkron]
-    InsertDB --> SendAIResponse[Telegram Kirim Respons AI ke User]
-    SkipExtract --> SendAIResponse
+    CreateFlow --> SaveMemories{Ada Memory Baru?}
+    GetFlow --> SaveMemories
+    UpdateFlow --> SaveMemories
+    ChatOnly --> SaveMemories
+
+    SaveMemories -->|Ya| PersistMemory[Simpan Fakta/Preferensi/Kebiasaan ke DB]
+    SaveMemories -->|Tidak| FormatResponse[Format Response + Konfirmasi]
+    PersistMemory --> FormatResponse
+
+    FormatResponse --> SendAIResponse[Telegram Kirim Respons ke User]
     SendAIResponse --> EndMsg
 ```
 
-## 2. Flowchart Proses Gateway AI
+## 2. Flowchart Proses Gateway AI (CRUD + Memory + Multi-turn)
 
 ```mermaid
 flowchart TD
-    Start([Pesan Masuk]) --> InsertSystemPrompt[Sisipkan Datetime & Instruksi Sistem]
-    InsertSystemPrompt --> AIProcessing[Model AI Menganalisa & Merespons Pesan]
+    Start([Pesan Masuk]) --> LoadHistory[Load 10 Pesan Terakhir dari DB]
+    LoadHistory --> LoadMemories[Load Persistent Memories User dari DB]
+    LoadMemories --> BuildMessages["Bangun Multi-turn Messages (System + History + Current)"]
+
+    BuildMessages --> InsertSystemPrompt["Sisipkan System Prompt: Datetime, User Info, Memories, Instruksi CRUD"]
+    InsertSystemPrompt --> AIProcessing["Model AI Menganalisa dengan Konteks Penuh (Multi-turn)"]
 
     AIProcessing --> OutputFormat{Return Valid JSON?}
 
     OutputFormat -->|Tidak Valid| FallbackResponse[Ambil Raw String sbg Response Obrolan Biasa]
-    OutputFormat -->|Valid| Extract[Ekstrak obj JSON: Response & Schedule]
+    OutputFormat -->|Valid| Extract[Ekstrak obj JSON: Response, Action, Data, Memories]
 
-    Extract --> HasSchedule{has_schedule == true?}
-    HasSchedule -->|Tidak| OnlyResponse[Kembalikan Reponse Saja]
-    HasSchedule -->|Ya| ExtractScheduleData[Ekstrak: Judul, Deskripsi, Schedule_Time, Priority]
+    Extract --> CheckMemories{Ada memories_to_save?}
+    CheckMemories -->|Ya| SaveNewMemories[Simpan Fakta/Preferensi/Kebiasaan Baru ke DB]
+    CheckMemories -->|Tidak| CheckAction{Action Type?}
+    SaveNewMemories --> CheckAction
 
-    OnlyResponse --> End([Selesai - Gateway Mengembalikan Obrolan])
-    ExtractScheduleData --> End
+    CheckAction -->|create| ExtractScheduleData[Ekstrak Schedule: Judul, Waktu, Priority]
+    CheckAction -->|get| ExtractQueryData[Ekstrak Query: FilterType, Date, Status, Keyword]
+    CheckAction -->|update| ExtractUpdateData["Ekstrak Update: SearchTitle (Fuzzy/Trigram Match), NewFields"]
+    CheckAction -->|none| OnlyResponse["Kembalikan Response / Pertanyaan Klarifikasi"]
+
+    ExtractScheduleData --> End([Selesai - Return Action + Data ke Handler])
+    ExtractQueryData --> End
+    ExtractUpdateData --> End
+    OnlyResponse --> End
     FallbackResponse --> End
 ```
 
@@ -131,21 +153,50 @@ flowchart TD
     NextActivity --> LoopActivity
 ```
 
-## 6. Flowchart Sistem AI untuk Rekomendasi Kesehatan
+## 7. Flowchart Persistent Memory (OpenClaw-style)
 
 ```mermaid
 flowchart TD
-    Start([Trigger AI Health]) --> GetUserProfile[Ambil Profil User]
-    GetUserProfile --> GetActivityHistory[Ambil History Kegiatan]
-    GetActivityHistory --> GetHealthData[Ambil Data Kesehatan User]
+    Start([Pesan Masuk dari User]) --> FetchMemories["Ambil Semua Memories User dari DB (user_memories)"]
+    FetchMemories --> InjectToPrompt["Masukkan Memories ke System Prompt AI"]
 
-    GetHealthData --> AnalyzePattern[Analisis Pola Kegiatan]
-    AnalyzePattern --> IdentifyHealthIssues[Identifikasi Masalah Kesehatan Potensial]
+    InjectToPrompt --> AIProcess["AI Proses Pesan dengan Konteks Memory"]
+    AIProcess --> AIResponse["AI Response + memories_to_save[]"]
 
-    IdentifyHealthIssues --> Contextualize[Kontekstualisasi dengan Kegiatan]
-    Contextualize --> GenerateRecommendations[Generate Rekomendasi Spesifik]
+    AIResponse --> HasNewMemory{Ada Memory Baru?}
+    HasNewMemory -->|Tidak| Done([Lanjut ke Action Handler])
+    HasNewMemory -->|Ya| ClassifyMemory{Klasifikasi Tipe}
 
-    GenerateRecommendations --> FormatRecommendation[Format Rekomendasi]
-    FormatRecommendation --> ReturnRecommendation[Return Rekomendasi]
-    ReturnRecommendation --> End([Selesai])
+    ClassifyMemory -->|preference| SavePref["Simpan: e.g. 'User suka reminder 30 menit sebelum'"]
+    ClassifyMemory -->|fact| SaveFact["Simpan: e.g. 'User kerja di perusahaan IT'"]
+    ClassifyMemory -->|habit| SaveHabit["Simpan: e.g. 'User biasa jogging jam 5 pagi'"]
+    ClassifyMemory -->|personal| SavePersonal["Simpan: e.g. 'User alergi kacang'"]
+
+    SavePref --> InsertDB["INSERT ke user_memories Table"]
+    SaveFact --> InsertDB
+    SaveHabit --> InsertDB
+    SavePersonal --> InsertDB
+
+    InsertDB --> Done
+```
+
+## 8. Flowchart Multi-turn Conversation
+
+```mermaid
+flowchart TD
+    Start([Pesan User Masuk]) --> FetchHistory["Ambil 10 Pesan Terakhir dari DB (message_history)"]
+    FetchHistory --> BuildArray["Bangun Message Array (OpenAI Format)"]
+
+    BuildArray --> SystemMsg["[system] System Prompt + Memories + Instruksi"]
+    SystemMsg --> HistoryMsgs["[user/assistant] Riwayat Percakapan (kronologis)"]
+    HistoryMsgs --> CurrentMsg["[user] Pesan Terbaru"]
+
+    CurrentMsg --> SendToAI["Kirim Multi-turn Messages ke AI API"]
+    SendToAI --> AIUnderstands["AI Memahami Konteks dari Seluruh Percakapan"]
+
+    AIUnderstands --> Example1["Contoh: User bilang 'Jam 5'"]
+    Example1 --> WithContext["AI lihat history: sebelumnya tanya 'bukber jam berapa?'"]
+    WithContext --> Result["AI paham: Buat jadwal bukber jam 5"]
+
+    Result --> Done([Return AI Response + Action])
 ```

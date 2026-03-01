@@ -20,4 +20,8 @@ type ActivityRepository interface {
 	GetTodayActivities(ctx context.Context, userID uuid.UUID) ([]*entity.Activity, error)
 	GetCompletedToday(ctx context.Context, userID uuid.UUID) ([]*entity.Activity, error)
 	GetPendingActivitiesToRemind(ctx context.Context, until time.Time) ([]*entity.Activity, error)
+	// SearchByKeyword searches activities by keyword in title or description, scoped to a user
+	SearchByKeyword(ctx context.Context, userID uuid.UUID, keyword string) ([]*entity.Activity, error)
+	// GetByUserIDAndTitleFuzzy finds activities matching a title (case-insensitive LIKE), scoped to a user
+	GetByUserIDAndTitleFuzzy(ctx context.Context, userID uuid.UUID, title string) ([]*entity.Activity, error)
 }

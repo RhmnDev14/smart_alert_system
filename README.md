@@ -1,6 +1,6 @@
 # Smart Alert System
 
-Sistem alert pintar yang mengintegrasikan AI dan WhatsApp untuk mengingatkan kegiatan user yang diagendakan serta memberikan rekomendasi kesehatan terkait kegiatan yang dilakukan.
+Sistem alert pintar yang mengintegrasikan AI dan Telegram untuk mengingatkan kegiatan user yang diagendakan serta memberikan rekomendasi kesehatan — dilengkapi fitur **Persistent Memory** dan **Multi-turn Conversation**.
 
 ## Fitur Utama
 
@@ -19,21 +19,35 @@ Sistem alert pintar yang mengintegrasikan AI dan WhatsApp untuk mengingatkan keg
    - Sistem aktif mengecek setiap menit (cron job)
    - Notifikasi otomatis dikirim tepat pada waktu kegiatan yang telah dijadwalkan
 
-4. **Gateway AI Dinamis**
+4. **Gateway AI Dinamis dengan CRUD Flexible**
    - User dapat mengirim pesan obrolan biasa atau menjadwalkan kegiatan
    - AI berfungsi sebagai asisten yang mengobrol secara natural (bahasa Indonesia)
-   - AI secara otomatis di background mendeteksi, mengekstrak, dan menyimpan jadwal ke database jika ada konteks kegiatan
+   - AI secara otomatis mendeteksi intent: **create**, **get**, **update**, atau **none**
+   - **Klarifikasi otomatis** — jika jadwal kurang spesifik (misal tanpa jam), AI bertanya dulu sebelum menyimpan
+   - **Fuzzy search** dengan PostgreSQL Trigram (`pg_trgm`) — typo seperti "joging" tetap cocok dengan "Jogging"
 
-5. **Welcome Message**
+5. **🧠 Persistent Memory (OpenClaw-style)**
+   - Bot mengingat preferensi, kebiasaan, dan fakta personal user
+   - Tipe memory: `preference`, `fact`, `habit`, `personal`
+   - Memory disimpan di tabel `user_memories` dan di-load setiap ada pesan masuk
+
+6. **💬 Multi-turn Conversation**
+   - Menggunakan format multi-turn message array (system + user/assistant history)
+   - 10 pesan terakhir di-load sebagai konteks percakapan
+   - AI bisa memahami jawaban follow-up
+
+7. **Welcome Message**
    - Pesan dan panduan interaksi untuk user baru yang mengontak Bot Telegram
 
 ## Teknologi
 
 - **Backend**: Go (Golang)
 - **Messaging API**: Telegram Bot API / Long-polling
-- **AI Gateway**: Model LLM via API (contoh: OpenAI, SumoPod, OpenRouter, atau local LLM)
+- **AI Gateway**: Model LLM via API (contoh: OpenAI, SumoPod, OpenRouter, Google Gemini, atau local LLM)
 - **Database**: PostgreSQL (Data persistence & Transactional Manager)
+- **Database Extensions**: `pg_trgm` (Fuzzy text matching / trigram similarity)
 - **Message Queue / Job Manager**: Redis & Asynq (Background Workers Pipeline)
+- **Persistent Memory**: PostgreSQL-backed user memory system (preferences, facts, habits)
 
 ## Dokumentasi
 
@@ -69,9 +83,13 @@ smart-alert-system/
 ## Alur Kerja
 
 1. **User mengirim pesan** → Diterima lewat polling Telegram Bot
-2. **Gateway AI** → Membaca pesan, menyiapkan respons obrolan natural, sekaligus mendeteksi kalau ada informasi jadwal.
-3. **Penyimpanan Otomatis** → Bila ada jadwal, sistem otomatis merekam detail nama, deskripsi, dan waktu jadwal ke _database PostgreSQL_.
-4. **Scheduler & Message Queue Berjalan (Asynq + Redis)** →
+2. **Load Konteks** → Sistem mengambil 10 pesan terakhir (chat history) dan persistent memories user dari database
+3. **Gateway AI (Multi-turn)** → Membaca pesan dengan konteks percakapan penuh dan memories, menyiapkan respons obrolan natural, sekaligus mendeteksi apakah ada intent CRUD.
+4. **Klarifikasi Otomatis** → Jika jadwal kurang spesifik (misal tanpa jam), AI bertanya dulu sebelum menyimpan.
+5. **Fuzzy Search** → Pencarian kegiatan menggunakan trigram similarity (`pg_trgm`), sehingga typo seperti "joging" tetap cocok dengan "Jogging".
+6. **Persistent Memory** → Jika AI mendeteksi informasi penting tentang user (preferensi, kebiasaan, dll), otomatis disimpan ke database `user_memories` untuk digunakan di percakapan mendatang.
+7. **Penyimpanan Otomatis** → Bila ada jadwal lengkap, sistem otomatis merekam detail nama, deskripsi, dan waktu jadwal ke _database PostgreSQL_.
+8. **Scheduler & Message Queue Berjalan (Asynq + Redis)** →
    - Scheduler menjalankan tugas rutin berdasarkan jam (`MORNING_ALERT_TIME` dan `EVENING_SUMMARY_TIME`) lalu menembakkan event ke **Redis Message Queue** (Asynq).
    - _Background Job Worker_ menarik tugas dari antrean Redis dan memproses pemanggilan API AI + Pengiriman Telegram secara paralel non-blocking, dilengkapi fitur _Auto Retry on Failure_ & _Transactional Rollback_ tingkat database.
    - Demikian pula Pengingat Real-time menit-ke-menit bekerja mengecek aktivitas _pending_, mendorongnya ke antrean, lalu merubah statusnya menjadi _completed_ segera setelah notifikasi berhasil terkirim.
@@ -109,11 +127,12 @@ REDIS_PASSWORD=
 # Telegram
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
 
-# AI & LLM Service
-AI_PROVIDER=openai
-AI_BASE_URL=https://openrouter.ai/api/v1
-AI_MODEL=google/gemini-2.5-flash-free
-AI_API_KEY=your_api_key_here
+# AI & LLM Service (Google Gemini via OpenAI-compatible endpoint)
+AI_PROVIDER=gemini
+AI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+AI_MODEL=gemini-2.0-flash
+AI_API_KEY=your_gemini_api_key_here
+# Dapatkan API Key dari: https://aistudio.google.com/apikey
 
 # Konfigurasi Jam
 MORNING_ALERT_TIME=05:00
@@ -240,13 +259,18 @@ smart-alert-system/
 8. ✅ Scheduler dinamis (Morning Alert, Evening Summary, dan Pengingat Menit-ke-Menit)
 9. ✅ Ekstraksi otomatis natural language ke database time
 10. ✅ Transaksional Rollback & Graceful Error Handling dengan Queue Retry System
+11. ✅ **Fuzzy Search** — Pencarian kegiatan dengan PostgreSQL Trigram Similarity (`pg_trgm`), toleran terhadap typo
+12. ✅ **Klarifikasi Jadwal** — AI bertanya detail waktu jika jadwal belum lengkap sebelum menyimpan
+13. ✅ **Persistent Memory** — Bot mengingat preferensi, kebiasaan, dan fakta personal user (OpenClaw-style)
+14. ✅ **Multi-turn Conversation** — Proper multi-turn message format untuk konteks percakapan yang lebih baik
+15. ✅ **User Identity Context** — AI mengenali nama user dan bisa menjawab pertanyaan identitas
 
 ## Next Steps
 
 1. ✅ Konfigurasi dan testing Gateway LLM OpenRouter
 2. ✅ Penyempurnaan Asynq (Message Broker) + Redis Integration
 3. ✅ Bungkus logic database ke dalam _Transaction Manager_ untuk konsistensi data
-4. Tingkatkan prompt _fallback validation_ untuk sistem error AI
-5. Tambahkan unit tests lengkap untuk infrastruktur
-
-# smart_alert_system
+4. ✅ Persistent Memory & Multi-turn Conversation (OpenClaw-style)
+5. Tingkatkan prompt _fallback validation_ untuk sistem error AI
+6. Tambahkan unit tests lengkap untuk infrastruktur
+7. Memory management — limit jumlah memories per user & deduplikasi

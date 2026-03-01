@@ -50,6 +50,7 @@ func main() {
 	alertRepo := infraRepo.NewAlertRepository(db)
 	healthRepo := infraRepo.NewHealthRepository(db)
 	categoryRepo := infraRepo.NewCategoryRepository(db)
+	memoryRepo := infraRepo.NewMemoryRepository(db)
 
 	// Initialize Telegram Bot client
 	telegramClient := telegram.NewTelegramClient(cfg.TelegramBotToken)
@@ -103,6 +104,7 @@ func main() {
 		telegramClient,
 		messageRepo,
 		alertRepo,
+		memoryRepo,
 	)
 
 	// Setup task processor & register routes

@@ -162,6 +162,46 @@ func (r *activityRepository) GetPendingActivitiesToRemind(ctx context.Context, u
 	return r.scanActivityRows(rows)
 }
 
+func (r *activityRepository) SearchByKeyword(ctx context.Context, userID uuid.UUID, keyword string) ([]*entity.Activity, error) {
+	query := `SELECT id, user_id, category_id, title, description, scheduled_time, reminder_time,
+	          status, priority, created_at, updated_at, completed_at
+	          FROM activities WHERE user_id = $1 AND (title ILIKE $2 OR description ILIKE $2)
+	          ORDER BY scheduled_time DESC
+	          LIMIT 20`
+
+	searchPattern := "%" + keyword + "%"
+	return r.scanActivities(ctx, query, userID, searchPattern)
+}
+
+func (r *activityRepository) GetByUserIDAndTitleFuzzy(ctx context.Context, userID uuid.UUID, title string) ([]*entity.Activity, error) {
+	// First try trigram similarity matching (handles typos like "joging" -> "Jogging")
+	query := `SELECT id, user_id, category_id, title, description, scheduled_time, reminder_time,
+	          status, priority, created_at, updated_at, completed_at
+	          FROM activities WHERE user_id = $1 AND similarity(LOWER(title), LOWER($2)) > 0.3
+	          ORDER BY similarity(LOWER(title), LOWER($2)) DESC, scheduled_time DESC
+	          LIMIT 10`
+
+	results, err := r.scanActivities(ctx, query, userID, title)
+	if err != nil {
+		return nil, err
+	}
+
+	// If trigram match found results, return them
+	if len(results) > 0 {
+		return results, nil
+	}
+
+	// Fallback: try ILIKE substring match
+	fallbackQuery := `SELECT id, user_id, category_id, title, description, scheduled_time, reminder_time,
+	          status, priority, created_at, updated_at, completed_at
+	          FROM activities WHERE user_id = $1 AND title ILIKE $2
+	          ORDER BY scheduled_time DESC
+	          LIMIT 10`
+
+	searchPattern := "%" + title + "%"
+	return r.scanActivities(ctx, fallbackQuery, userID, searchPattern)
+}
+
 func (r *activityRepository) scanActivities(ctx context.Context, query string, args ...interface{}) ([]*entity.Activity, error) {
 	rows, err := r.db.Ext(ctx).QueryContext(ctx, query, args...)
 	if err != nil {
