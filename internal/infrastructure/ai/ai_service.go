@@ -421,20 +421,19 @@ func (s *OpenAIService) GenerateMorningAlert(ctx context.Context, activities []*
 	activitiesStr := formatActivitiesForAI(activities)
 
 	prompt := fmt.Sprintf(`Buatkan pesan pengingat pagi hari (Morning Alert) dalam bahasa Indonesia dengan kriteria berikut:
-1. Sapa dengan penuh semangat dan berikan ucapan motivasi atau kutipan penyemangat untuk memulai hari.
-2. Jika ada kegiatan terjadwal hari ini, sebutkan dan ingatkan kegiatan-kegiatan tersebut.
-3. Tanyakan kepada user apa saja rencana atau kegiatan tambahan yang akan dilakukan hari ini, agar user bisa menambahkannya.
-4. Jangan lupa berikan tips kesehatan personal yang relevan jika ada (opsional).
-5. DI AKHIR PESAN, SELALU TAMBAHKAN TEKS PERSIS SEPERTI INI:
+1. Sapa user dengan ramah dan hangat untuk memulai hari.
+2. Jika ada kegiatan terjadwal hari ini, tampilkan daftar jadwal kegiatannya beserta jam-nya.
+3. Jika tidak ada kegiatan, sampaikan bahwa belum ada jadwal hari ini.
+4. Tanyakan apakah ada kegiatan lain yang ingin ditambahkan untuk hari ini.
+5. JANGAN berikan tips kesehatan atau motivasi panjang. Buat pesan singkat dan to the point.
+6. DI AKHIR PESAN, SELALU TAMBAHKAN TEKS PERSIS SEPERTI INI:
 Smart Alert System
 Develop by Rahman Umardi
 
 Jadwal kegiatan hari ini:
 %s
 
-Profil Kesehatan User (jadikan referensi jika perlu): %s
-
-Buat pesan yang ringkas, hangat, bersahabat, dan memotivasi.`, activitiesStr, formatHealthProfileForAI(healthProfile))
+Buat pesan yang singkat, hangat, dan bersahabat.`, activitiesStr)
 
 	return s.callAPI(prompt)
 }

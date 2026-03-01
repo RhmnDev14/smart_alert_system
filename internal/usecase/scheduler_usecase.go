@@ -92,11 +92,8 @@ func (uc *SchedulerUseCase) ProcessSingleMorningAlert(ctx context.Context, userI
 			}
 		}
 
-		// Get health profile
-		healthProfile, _ := uc.healthRepo.GetHealthProfileByUserID(txCtx, userID)
-
-		// Generate alert message
-		message, err := uc.aiService.GenerateMorningAlert(txCtx, activities, healthProfile)
+		// Generate alert message (health profile no longer needed for morning alert)
+		message, err := uc.aiService.GenerateMorningAlert(txCtx, activities, nil)
 		if err != nil {
 			message = uc.generateDefaultMorningAlert(activities)
 		}
@@ -280,16 +277,16 @@ func (uc *SchedulerUseCase) ProcessSingleActivityReminder(ctx context.Context, a
 
 func (uc *SchedulerUseCase) generateDefaultMorningAlert(activities []*entity.Activity) string {
 	if len(activities) == 0 {
-		return "Selamat pagi! 🌅\n\nSemoga harimu dipenuhi dengan kebahagiaan dan produktivitas. \"Hari ini adalah kesempatan baru untuk menjadi lebih baik.\"\n\nSaat ini Anda belum memiliki kegiatan yang dijadwalkan hari ini. Adakah rencana atau aktivitas yang ingin Anda lakukan hari ini? Beritahu saya, agar saya bisa mengingatkan Anda!\n\nSmart Alert System\nDevelop by Rahman Umardi"
+		return "Selamat pagi! ☀️\n\nBelum ada jadwal kegiatan untuk hari ini.\nApakah ada kegiatan yang ingin kamu rencanakan hari ini? Beritahu saya ya! 😊\n\nSmart Alert System\nDevelop by Rahman Umardi"
 	}
 
 	loc, _ := time.LoadLocation("Asia/Jakarta")
-	msg := "Selamat pagi! 🌅\n\nSemoga harimu penuh semangat. \"Setiap langkah kecil yang kamu ambil hari ini, akan membawamu lebih dekat ke tujuanmu.\"\n\nBerikut adalah jadwal kegiatan Anda hari ini:\n"
+	msg := "Selamat pagi! ☀️\n\nBerikut jadwal kegiatan kamu hari ini:\n\n"
 	for i, activity := range activities {
 		localTime := activity.ScheduledTime.In(loc)
-		msg += fmt.Sprintf("%d. %s - %s\n", i+1, activity.Title, localTime.Format("15:04"))
+		msg += fmt.Sprintf("%d. %s — %s\n", i+1, activity.Title, localTime.Format("15:04"))
 	}
-	msg += "\nApakah ada kegiatan tambahan lain yang ingin Anda rencanakan hari ini? Beritahu saya 😊\n\nSmart Alert System\nDevelop by Rahman Umardi"
+	msg += "\nApakah ada kegiatan lain yang ingin ditambahkan untuk hari ini? 😊\n\nSmart Alert System\nDevelop by Rahman Umardi"
 
 	return msg
 }
