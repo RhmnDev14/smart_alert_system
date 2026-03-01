@@ -178,13 +178,6 @@ for file in migrations/*.sql; do
 done
 ```
 
-### Drop Database (Development Only)
-
-```bash
-# Hati-hati: ini akan menghapus semua tabel!
-make migrate-down
-```
-
 ## Menjalankan Aplikasi
 
 ### Prerequisites
@@ -246,31 +239,3 @@ smart-alert-system/
 │       └── scheduler/    # Cron scheduler
 └── migrations/           # Database migrations
 ```
-
-## Fitur yang Sudah Diimplementasikan
-
-1. ✅ Clean Architecture dengan separation of concerns
-2. ✅ Domain entities sesuai ERD
-3. ✅ Repository pattern dengan PostgreSQL
-4. ✅ Use cases untuk business logic
-5. ✅ Telegram webhook / long-polling handler
-6. ✅ AI dinamis Gateway untuk chat sekaligus parsing objek JSON
-7. ✅ Redis Message Queue / Asynq Job Workers
-8. ✅ Scheduler dinamis (Morning Alert, Evening Summary, dan Pengingat Menit-ke-Menit)
-9. ✅ Ekstraksi otomatis natural language ke database time
-10. ✅ Transaksional Rollback & Graceful Error Handling dengan Queue Retry System
-11. ✅ **Fuzzy Search** — Pencarian kegiatan dengan PostgreSQL Trigram Similarity (`pg_trgm`), toleran terhadap typo
-12. ✅ **Klarifikasi Jadwal** — AI bertanya detail waktu jika jadwal belum lengkap sebelum menyimpan
-13. ✅ **Persistent Memory** — Bot mengingat preferensi, kebiasaan, dan fakta personal user (OpenClaw-style)
-14. ✅ **Multi-turn Conversation** — Proper multi-turn message format untuk konteks percakapan yang lebih baik
-15. ✅ **User Identity Context** — AI mengenali nama user dan bisa menjawab pertanyaan identitas
-
-## Next Steps
-
-1. ✅ Konfigurasi dan testing Gateway LLM OpenRouter
-2. ✅ Penyempurnaan Asynq (Message Broker) + Redis Integration
-3. ✅ Bungkus logic database ke dalam _Transaction Manager_ untuk konsistensi data
-4. ✅ Persistent Memory & Multi-turn Conversation (OpenClaw-style)
-5. Tingkatkan prompt _fallback validation_ untuk sistem error AI
-6. Tambahkan unit tests lengkap untuk infrastruktur
-7. Memory management — limit jumlah memories per user & deduplikasi
